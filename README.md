@@ -51,7 +51,10 @@ A **live translator** decodes compressed messages back to English so you can fol
 - **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
 - **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
 - **Custom model support** — enter any OpenRouter model ID
-- **Text-to-Speech** — ElevenLabs (cloud) or Qwen3-TTS (local, free) with distinct voices per agent
+- **Three TTS options** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local, heavier)
+- **Hardware-aware TTS recommendations** — setup detects your GPU VRAM and suggests the best option
+- **Auto dependency install** — setup installs the right packages for your chosen TTS provider
+- **Auto-launch TTS server** — `server.py` starts the local TTS server automatically, no second terminal needed
 - **Adjustable turns** — 6 to 40 via slider, phases scale proportionally
 - **Agent personalities** — Alex (enthusiastic) vs Sam (skeptical), natural conversational speech
 - **Real-time web UI** — live chat, growing dictionary, JSON protocol inspector
@@ -65,13 +68,13 @@ A **live translator** decodes compressed messages back to English so you can fol
 │  (index.html)│    messages + audio     │  server.py    │
 └─────────────┘                         └──────┬───────┘
                                                │
-                          ┌────────────────────┼────────────────────┐
-                          │                    │                    │
-                    ┌─────▼─────┐      ┌──────▼──────┐    ┌───────▼───────┐
-                    │  Alex      │      │  Sam        │    │  TTS          │
-                    │  (any LLM) │      │  (any LLM)  │    │  (ElevenLabs  │
-                    └───────────┘      └─────────────┘    │   or Qwen3)   │
-                                                           └───────────────┘
+                          ┌────────────────────┼──────────────────────┐
+                          │                    │                      │
+                    ┌─────▼─────┐      ┌──────▼──────┐    ┌─────────▼────────┐
+                    │  Alex      │      │  Sam        │    │  tts_server.py   │
+                    │  (any LLM) │      │  (any LLM)  │    │  Kokoro / Qwen3  │
+                    └───────────┘      └─────────────┘    │  (auto-started)  │
+                                                           └──────────────────┘
 ```
 
 ## Quick start
@@ -90,19 +93,17 @@ The setup wizard will:
 - Install core dependencies inside the venv
 - Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
 - Walk you through API key and model configuration
-- Let you choose a TTS provider and install its dependencies automatically
+- Detect your GPU VRAM and recommend the best TTS provider
+- Install the right TTS dependencies automatically
 - Create your `.env` file
 
 ### 2. Run
 
 ```bash
-# Option A — activate the venv first (recommended)
-source .venv/bin/activate
-python server.py
-
-# Option B — run directly via venv Python
-.venv/bin/python server.py
+python3 server.py
 ```
+
+That's it. The venv is detected and used automatically — no need to activate it manually.
 
 ### 3. Open
 
@@ -122,30 +123,48 @@ Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns,
 
 ## Text-to-Speech
 
-The setup wizard lets you choose between two TTS providers:
+The setup wizard detects your GPU VRAM and recommends the best TTS option before you choose. All local options start automatically when you run `server.py` — no second terminal needed.
 
-### ElevenLabs (cloud)
+### Kokoro-ONNX (local — recommended)
 
-High quality, low latency (~75ms). Each agent gets a distinct voice. The free tier gives you 10K characters/month with no credit card needed.
+The best default for most hardware. 82M parameter model, ~300MB download, runs entirely on CPU via ONNX runtime. Near real-time on any modern laptop. No GPU required, no PyTorch, no large downloads.
 
-Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) — enable the **"Text to Speech"** permission when creating your key.
-
-### Qwen3-TTS (local, free forever)
-
-Runs entirely on your machine — no API key, no quota, no cost. Uses `Qwen3-TTS-12Hz-0.6B-CustomVoice`, an open-source model by Alibaba's Qwen team with 16 preset voices.
-
-- Setup installs all dependencies automatically (PyTorch CPU build + qwen-tts)
-- Model weights (~1.3 GB) download on first run
-- `tts_server.py` launches automatically when you start `server.py` — no second terminal needed
-- Runs on CPU; expect 5–15 seconds per sentence on modest hardware
+- Install: `pip install kokoro-onnx` (handled automatically by setup)
+- Model files download on first run (~300MB)
+- Works on any hardware including low-end GPUs like GTX 1050
 
 | Voice | Default for | Style |
 |---|---|---|
-| Ryan | Alex | Youthful, clear, natural |
-| Ethan | Sam | Seasoned, low and mellow |
-| Miles | — | Calm, measured |
-| Vivian | — | Bright, slightly edgy |
-| Cherry | — | Warm, gentle |
+| am_michael | Alex | American male, clear |
+| bm_george | Sam | British male, distinguished |
+| am_adam | — | American male, warm |
+| bm_lewis | — | British male, measured |
+| af_heart | — | American female, natural |
+| af_bella | — | American female, expressive |
+| bf_emma | — | British female, warm |
+
+### ElevenLabs (cloud)
+
+Highest quality, ~75ms latency. Free tier gives 10K characters/month, no credit card needed.
+
+Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) — enable the **"Text to Speech"** permission when creating your key.
+
+### Qwen3-TTS (local — heavy)
+
+600M parameter model, ~1.3GB download, runs on CPU (float32). Richer voice variety than Kokoro but significantly slower on modest hardware and requires more RAM. **Not recommended for GPUs with less than 3GB VRAM.**
+
+- Runs on CPU regardless of GPU — expect 5–15 seconds per sentence on a laptop
+- 16 preset voices including Ryan, Ethan, Vivian, Cherry, and more
+- Model weights download on first run (~1.3GB)
+
+### TTS hardware recommendations
+
+| Your hardware | Recommended TTS |
+|---|---|
+| No NVIDIA GPU | Kokoro — runs great on CPU |
+| < 3GB VRAM (e.g. GTX 1050) | Kokoro — Qwen3 will crash |
+| 3–6GB VRAM | Kokoro (faster) or Qwen3 (richer voices) |
+| 6GB+ VRAM | Any option — ElevenLabs for best quality |
 
 ### No TTS
 
@@ -158,25 +177,25 @@ Skip TTS entirely and run in text-only mode.
 | **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
 | **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
 | **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
-| **TTS** | ElevenLabs only | ElevenLabs or Qwen3-TTS (local, free) |
+| **TTS** | ElevenLabs only | ElevenLabs, Kokoro-ONNX, or Qwen3-TTS |
 | **Agents** | Generic | Named personalities (Alex & Sam) |
 | **Translation** | Decode via ggwave | AI translator decodes in real-time |
 | **Dictionary** | None (fixed encoding) | Live dictionary grows during conversation |
 | **Duration** | Fixed | Adjustable 6–40 turns with proportional phases |
 | **Visual** | Two devices with audio | Web UI with chat, dictionary, JSON inspector |
-| **Setup** | Manual | Wizard — installs deps, fetches live models, writes .env |
+| **Setup** | Manual | Wizard — detects hardware, installs deps, writes .env |
 
 ## Project structure
 
 ```
 gibberlink-revisited/
 ├── server.py          # FastAPI backend — orchestrates agents, TTS, WebSocket
-├── tts_server.py      # Local Qwen3-TTS inference server (auto-started by server.py)
+├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started by server.py)
 ├── setup.py           # Interactive setup wizard
 ├── static/
 │   └── index.html     # Web frontend — real-time chat UI with audio
 ├── .env.example       # Configuration template
-├── requirements.txt   # Core dependencies (Qwen3 deps installed separately by setup.py)
+├── requirements.txt   # Core dependencies (TTS deps installed separately by setup.py)
 ├── logo.svg
 └── README.md
 ```
@@ -211,4 +230,4 @@ MIT
 ## Credits
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
-- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
+- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
