@@ -33,6 +33,7 @@ _reexec_in_venv()
 
 import argparse
 import io
+import subprocess
 import numpy as np
 
 from dotenv import load_dotenv
@@ -194,7 +195,32 @@ async def voices():
 
 
 # ── Main ─────────────────────────────────────────────────────
+def _free_port(port: int):
+    """Kill any stale process already bound to this port."""
+    import signal
+    try:
+        out = subprocess.check_output(
+            ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
+        ).strip()
+        import time
+        killed = False
+        for pid_str in out.splitlines():
+            pid = int(pid_str)
+            if pid == os.getpid():
+                continue
+            try:
+                os.kill(pid, signal.SIGKILL)
+                print(f"  ⚠ Killed stale process on port {port} (PID {pid})")
+                killed = True
+            except ProcessLookupError:
+                pass
+        if killed:
+            time.sleep(0.5)  # give OS time to release the socket
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+
 if __name__ == "__main__":
+    _free_port(PORT)
     print(f"  TTS server ({ENGINE}) on http://localhost:{PORT}")
     print(f"  Test: curl 'http://localhost:{PORT}/synthesize?text=Hello&voice={VOICES[0]}' --output test.wav\n")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")

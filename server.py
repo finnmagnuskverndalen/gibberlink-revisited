@@ -39,15 +39,20 @@ def _free_port(port: int):
         out = subprocess.check_output(
             ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
         ).strip()
+        import time
+        killed = False
         for pid_str in out.splitlines():
             pid = int(pid_str)
             if pid == os.getpid():
                 continue
             try:
-                os.kill(pid, signal.SIGTERM)
+                os.kill(pid, signal.SIGKILL)
                 print(f"  ⚠ Killed stale process on port {port} (PID {pid})")
+                killed = True
             except ProcessLookupError:
                 pass
+        if killed:
+            time.sleep(0.5)  # give OS time to release the socket
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass  # lsof not found or port is free — nothing to do
 
@@ -542,7 +547,8 @@ async def websocket_endpoint(ws: WebSocket):
             if pct < 0.6: return PHASE_COMPRESSING
             return PHASE_ALIEN
 
-        for turn in range(total_turns):
+        async def build_turn(turn):
+            """Generate LLM response + TTS audio for one turn. Returns a payload dict."""
             phase        = get_phase_scaled(turn)
             is_a         = turn % 2 == 0
             agent_name   = "Alex" if is_a else "Sam"
@@ -554,7 +560,6 @@ async def websocket_endpoint(ws: WebSocket):
             api_key      = AGENT_A_API_KEY  if is_a else AGENT_B_API_KEY
             model        = AGENT_A_MODEL    if is_a else AGENT_B_MODEL
 
-            # Resolve voice_id depending on TTS backend
             if EFFECTIVE_TTS == "kokoro":
                 voice_id = AGENT_A_KOKORO_VOICE if is_a else AGENT_B_KOKORO_VOICE
             elif EFFECTIVE_TTS == "qwen3":
@@ -562,6 +567,7 @@ async def websocket_endpoint(ws: WebSocket):
             else:
                 voice_id = AGENT_A_VOICE_ID if is_a else AGENT_B_VOICE_ID
 
+            # Signal to frontend that this agent is thinking
             await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
 
             agent_msgs = []
@@ -573,11 +579,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             system_prompt = get_system_prompt(agent_name, partner_name, phase, dictionary, topic, personality)
 
-            try:
-                response = await call_llm(provider, api_key, model, agent_msgs, system_prompt)
-            except Exception as e:
-                await ws.send_json({"type": "error", "message": str(e)})
-                break
+            response = await call_llm(provider, api_key, model, agent_msgs, system_prompt)
 
             new_terms = {}
             if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
@@ -593,23 +595,55 @@ async def websocket_endpoint(ws: WebSocket):
                 if audio_bytes:
                     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-            await ws.send_json({
-                "type": "message", "agent": agent_id, "agent_name": agent_name,
-                "turn": turn, "phase": phase, "text": response,
-                "audio": audio_b64,
-                "audio_format": "wav" if EFFECTIVE_TTS == "qwen3" else "mp3",
-                "translation": None, "protocol_message": protocol_msg,
-                "dictionary": dictionary, "new_terms": new_terms,
-            })
+            return {
+                "payload": {
+                    "type": "message", "agent": agent_id, "agent_name": agent_name,
+                    "turn": turn, "phase": phase, "text": response,
+                    "audio": audio_b64,
+                    "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
+                    "translation": None, "protocol_message": protocol_msg,
+                    "dictionary": dictionary, "new_terms": new_terms,
+                },
+                "turn": turn, "agent_id": agent_id, "response": response,
+                "phase": phase, "dictionary": dict(dictionary),
+                "api_key": api_key, "provider": provider, "model": model,
+            }
 
+        # ── Pipelined turn loop ───────────────────────────────────
+        # While the frontend plays audio for turn N, we pre-build turn N+1
+        # so there is no gap between responses.
+
+        next_task = asyncio.create_task(build_turn(0))
+
+        for turn in range(total_turns):
+            # Await the pre-built result for this turn
             try:
-                await asyncio.wait_for(ws.receive_json(), timeout=30.0)
+                result = await next_task
+            except Exception as e:
+                await ws.send_json({"type": "error", "message": str(e)})
+                break
+
+            # Immediately start building the next turn in the background
+            if turn + 1 < total_turns:
+                next_task = asyncio.create_task(build_turn(turn + 1))
+
+            # Send this turn's message to the frontend
+            await ws.send_json(result["payload"])
+
+            # Wait for frontend "done" signal (audio finished playing)
+            try:
+                await asyncio.wait_for(ws.receive_json(), timeout=60.0)
             except asyncio.TimeoutError:
                 pass
 
-            if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
-                async def send_translation(t=turn, a=agent_id, r=response, d=dict(dictionary)):
-                    translation = await translate_message(r, d, AGENT_A_API_KEY, AGENT_A_PROVIDER, AGENT_A_MODEL)
+            # Fire-and-forget translation for compressed phases
+            if result["phase"] in (PHASE_COMPRESSING, PHASE_ALIEN):
+                async def send_translation(
+                    t=result["turn"], a=result["agent_id"],
+                    r=result["response"], d=result["dictionary"],
+                    ak=result["api_key"], pv=result["provider"], md=result["model"]
+                ):
+                    translation = await translate_message(r, d, ak, pv, md)
                     if translation:
                         try:
                             await ws.send_json({"type": "translation", "agent": a, "turn": t, "translation": translation})
