@@ -124,15 +124,36 @@ def install_base_deps():
     print(green("  ✓ Core dependencies installed"))
 
 
+def install_kokoro_deps():
+    """Install Kokoro-ONNX dependencies (only when TTS_PROVIDER=kokoro)."""
+    print(bold("\n📦 Installing Kokoro-TTS dependencies..."))
+    print(dim("  (kokoro-onnx + soundfile + espeak-ng — lightweight, no GPU needed)"))
+    pip = _get_pip()
+
+    print(dim("  Installing kokoro-onnx and soundfile..."))
+    ret = subprocess.call(pip + ["install", "kokoro-onnx", "soundfile", "-q"])
+    if ret != 0:
+        print(yellow("  ⚠ pip install had errors — attempting to continue"))
+
+    # espeak-ng is needed for G2P phoneme fallback on Linux
+    import shutil
+    if not shutil.which("espeak-ng") and sys.platform.startswith("linux"):
+        print(dim("  Installing espeak-ng (system package)..."))
+        subprocess.call(
+            ["sudo", "apt-get", "install", "-y", "-q", "espeak-ng"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+
+    print(green("  ✓ Kokoro dependencies installed"))
+    print(dim("  Note: model files (~300MB) download on first server start.\n"))
+
+
 def install_qwen3_deps():
     """Install Qwen3-TTS dependencies (only when TTS_PROVIDER=qwen3)."""
     print(bold("\n📦 Installing Qwen3-TTS dependencies..."))
     print(dim("  (torch + qwen-tts + soundfile + scipy — may take a few minutes)"))
     pip = _get_pip()
 
-    # Install PyTorch CPU build first — the default index includes CUDA builds
-    # which are huge (~2 GB). For a GTX 1050 / CPU-inference setup the CPU
-    # build is smaller and works just as well since qwen-tts runs on CPU anyway.
     print(dim("  Installing PyTorch (CPU build)..."))
     subprocess.check_call(pip + [
         "install", "torch", "torchaudio",
@@ -361,6 +382,8 @@ def configure_agent(label, default_provider="openrouter", default_model=None,
 
 # ── TTS configuration ────────────────────────────────────────
 
+# ── TTS voice lists ──────────────────────────────────────────
+
 QWEN3_SPEAKERS = [
     ("Ryan",   "Male   — youthful, clear, natural"),
     ("Ethan",  "Male   — seasoned, low and mellow"),
@@ -372,25 +395,70 @@ QWEN3_SPEAKERS = [
     ("Nova",   "Female — energetic, expressive"),
 ]
 
+KOKORO_VOICES = [
+    ("am_adam",   "Male   — American, warm"),
+    ("am_michael","Male   — American, clear"),
+    ("bm_george", "Male   — British, distinguished"),
+    ("bm_lewis",  "Male   — British, measured"),
+    ("af_heart",  "Female — American, natural"),
+    ("af_bella",  "Female — American, expressive"),
+    ("bf_emma",   "Female — British, warm"),
+    ("bf_isabella","Female — British, smooth"),
+]
+
+def _detect_vram_gb() -> float:
+    """Try to detect NVIDIA VRAM in GB. Returns 0.0 if no GPU found."""
+    try:
+        import subprocess, re
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            stderr=subprocess.DEVNULL, text=True
+        ).strip().splitlines()[0]
+        return round(int(out) / 1024, 1)
+    except Exception:
+        return 0.0
+
+def _tts_recommendation() -> str:
+    """Return a hardware-aware TTS recommendation string."""
+    vram = _detect_vram_gb()
+    if vram == 0:
+        return (f"  💡 {bold('Recommendation:')} No NVIDIA GPU detected.\n"
+                f"     → {green('Kokoro')} is ideal: 82M params, ~300MB, near real-time on CPU, zero GPU needed.")
+    elif vram < 3:
+        return (f"  💡 {bold('Recommendation:')} {yellow(f'{vram}GB VRAM detected')} — too small for Qwen3-TTS.\n"
+                f"     → {green('Kokoro')} is ideal: 82M params, ~300MB, runs entirely on CPU.\n"
+                f"     → Qwen3-TTS needs 2-4GB VRAM minimum and will crash on your GPU.")
+    elif vram < 6:
+        return (f"  💡 {bold('Recommendation:')} {yellow(f'{vram}GB VRAM')} — Kokoro or Qwen3-TTS (CPU) both work.\n"
+                f"     → {green('Kokoro')} for speed, Qwen3-TTS for slightly richer voice variety.")
+    else:
+        return (f"  💡 {bold('Recommendation:')} {green(f'{vram}GB VRAM')} — any local option works well.\n"
+                f"     → ElevenLabs for best quality, Kokoro for fast free local TTS.")
+
 def configure_tts():
     print(bold(f"\n{'─'*50}"))
     print(bold("  🔊 Text-to-Speech"))
     print(f"{'─'*50}")
-    print("  Choose a TTS provider for agent voices:\n")
-    print(f"    {cyan('1')}. ElevenLabs  {dim('— cloud API, best quality, 10K chars/month free')}")
-    print(f"    {cyan('2')}. Qwen3-TTS   {dim('— runs locally on your machine, free forever')}")
-    print(f"    {cyan('3')}. None        {dim('— text-only mode, no audio')}")
+    print()
+    print(_tts_recommendation())
+    print()
+    print(f"    {cyan('1')}. ElevenLabs  {dim('— cloud API, highest quality, 10K chars/month free')}")
+    print(f"    {cyan('2')}. Kokoro       {dim('— local, free, 82M params, ~300MB, fast CPU inference')}")
+    print(f"    {cyan('3')}. Qwen3-TTS   {dim('— local, free, 600M params, ~1.3GB, needs 3GB+ RAM')}")
+    print(f"    {cyan('4')}. None        {dim('— text-only mode, no audio')}")
     print()
 
-    choice = input("  Pick TTS provider [1/2/3, default: 3]: ").strip()
+    choice = input("  Pick TTS provider [1/2/3/4, default: 2]: ").strip()
 
     if choice == "1":
         return _configure_elevenlabs()
-    elif choice == "2":
+    elif choice == "3":
         return _configure_qwen3()
-    else:
+    elif choice == "4":
         print(dim("  Skipping TTS — running in text-only mode"))
         return {"provider": "none"}
+    else:
+        return _configure_kokoro()
 
 
 def _configure_elevenlabs():
@@ -449,6 +517,40 @@ def _configure_qwen3():
     }
 
 
+def _configure_kokoro():
+    print(f"\n  {bold('Kokoro — local inference (recommended for modest hardware)')}")
+    print(f"  Model: {cyan('kokoro-onnx')} — 82M params, ~300MB download, no GPU needed")
+    print(dim("  Runs entirely on CPU via ONNX runtime. Near real-time on most laptops.\n"))
+
+    print(bold("  Voices:"))
+    for i, (vid, desc) in enumerate(KOKORO_VOICES, 1):
+        print(f"    {cyan(str(i))}. {vid:<14} {dim(desc)}")
+
+    def pick_voice(label, default_id):
+        raw = input(f"\n  Pick {label} voice [default: {default_id}]: ").strip()
+        if not raw:
+            return default_id
+        try:
+            idx = int(raw) - 1
+            if 0 <= idx < len(KOKORO_VOICES):
+                return KOKORO_VOICES[idx][0]
+        except ValueError:
+            if raw in [v[0] for v in KOKORO_VOICES]:
+                return raw
+        print(yellow(f"  Invalid — using {default_id}"))
+        return default_id
+
+    voice_a = pick_voice("Alex (Agent A)", "am_michael")
+    voice_b = pick_voice("Sam  (Agent B)", "bm_george")
+    port = ask("  TTS server port", default="7862")
+    return {
+        "provider": "kokoro",
+        "voice_a":  voice_a,
+        "voice_b":  voice_b,
+        "port":     port,
+    }
+
+
 # ── Write .env ───────────────────────────────────────────────
 
 def write_env(agent_a, agent_b, tts):
@@ -464,9 +566,14 @@ ELEVENLABS_API_KEY={tts["api_key"]}
 ELEVENLABS_MODEL={tts["model"]}
 AGENT_A_VOICE_ID={tts["voice_a"]}
 AGENT_B_VOICE_ID={tts["voice_b"]}"""
+    elif p == "kokoro":
+        tts_block = f"""# ── TTS: Kokoro local ───────────────────────────────────────
+TTS_PROVIDER=kokoro
+KOKORO_TTS_URL=http://localhost:{tts["port"]}
+AGENT_A_KOKORO_VOICE={tts["voice_a"]}
+AGENT_B_KOKORO_VOICE={tts["voice_b"]}"""
     elif p == "qwen3":
         tts_block = f"""# ── TTS: Qwen3-TTS local ────────────────────────────────────
-# Start the TTS server first:  python tts_server.py
 TTS_PROVIDER=qwen3
 QWEN3_TTS_URL=http://localhost:{tts["port"]}
 AGENT_A_QWEN3_VOICE={tts["voice_a"]}
@@ -497,12 +604,15 @@ PORT=8765
         f.write(env_content)
     print(green("\n  ✓ .env written"))
 
-    # If Qwen3 was chosen, print setup instructions
-    if p == "qwen3":
+    # Post-config tips
+    if p in ("kokoro", "qwen3"):
         print()
-        print(bold("  ▶  Just run GibberLink — tts_server.py starts automatically:"))
+        print(bold("  ▶  Just run GibberLink — the TTS server starts automatically:"))
         print(f"       {cyan('python server.py')}")
-        print(dim("       (First start downloads model weights ~1.3 GB and loads them into memory)"))
+        if p == "kokoro":
+            print(dim("       (First start downloads ~300MB model, then loads in seconds)"))
+        else:
+            print(dim("       (First start downloads ~1.3GB model, may take a minute to load)"))
 
 
 # ── Main ─────────────────────────────────────────────────────
@@ -551,9 +661,10 @@ def main():
 
     tts = configure_tts()
 
-    # Install Qwen3 deps right after TTS selection, before writing .env,
-    # so the user sees any install errors before setup is considered done.
-    if tts.get("provider") == "qwen3":
+    # Install TTS deps right after selection so errors surface before .env is written
+    if tts.get("provider") == "kokoro":
+        install_kokoro_deps()
+    elif tts.get("provider") == "qwen3":
         install_qwen3_deps()
 
     write_env(agent_a, agent_b, tts)
