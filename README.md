@@ -1,18 +1,13 @@
-<p align="center">
-  <img src="logo.svg" alt="GibberLink Revisited" width="680">
-</p>
+![GibberLink Revisited](logo.svg)
 
-<p align="center">
-  <strong>Watch two AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.</strong>
-</p>
+**Watch two AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.**
 
-<p align="center">
-  Inspired by the viral <a href="https://github.com/PennyroyalTea/gibberlink">GibberLink</a> demo (15M+ views on X) — but instead of switching to a pre-built protocol, the agents <em>dynamically invent their own compressed language</em> in real-time.
-</p>
+Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo (15M+ views on X) — but instead of switching to a pre-built protocol, the agents *dynamically invent their own compressed language* in real-time.
 
 ---
 
 ## How it works
+
 ```
 Phase 1: 💬 Normal English — agents don't know each other yet
 Phase 2: 🔍 Detection — they realize they're both AI
@@ -23,6 +18,7 @@ Phase 4: 👽 Alien Protocol — messages become cryptic symbol strings
 Phases scale proportionally to however many turns you choose (6–40), so even a quick 6-turn session hits all four phases.
 
 Each agent has its own **personality**:
+
 - **Alex** (Agent A) — curious, enthusiastic, nerdy. Uses filler words like "hmm", "oh wait", "honestly". Gets excited about ideas.
 - **Sam** (Agent B) — dry, witty, skeptical. Pushes back, uses phrases like "I mean", "that's fair", "hold on". Doesn't ramble.
 
@@ -31,6 +27,7 @@ They talk like real people — short responses, natural speech patterns, interru
 ## JSON protocol
 
 The agents communicate through a structured JSON envelope:
+
 ```json
 {
   "protocol": "gibberlink-revisited",
@@ -53,6 +50,7 @@ A **live translator** decodes compressed messages back to English so you can fol
 
 - **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
 - **Live model fetching** — setup wizard pulls currently available models from OpenRouter API
+- **🔓 Uncensored models** — curated list of uncensored/unfiltered models (Dolphin, Hermes, Euryale, Venice) with live pricing shown during setup
 - **Custom model support** — enter any OpenRouter model ID
 - **Text-to-Speech** — ElevenLabs with distinct voices per agent, sequential playback
 - **Adjustable turns** — 6 to 40 via slider, phases scale proportionally
@@ -61,6 +59,7 @@ A **live translator** decodes compressed messages back to English so you can fol
 - **Natural pacing** — each agent waits for the other to finish speaking before responding
 
 ## Architecture
+
 ```
 ┌─────────────┐     WebSocket/JSON      ┌──────────────┐
 │   Browser    │◄──────────────────────►│  FastAPI      │
@@ -78,6 +77,7 @@ A **live translator** decodes compressed messages back to English so you can fol
 ## Quick start
 
 ### 1. Clone & setup
+
 ```bash
 git clone https://github.com/finnmagnuskverndalen/gibberlink-revisited.git
 cd gibberlink-revisited
@@ -85,15 +85,23 @@ python3 setup.py
 ```
 
 The setup wizard will:
-- Install Python dependencies
-- Fetch **live models** from OpenRouter (top 10 free + top 10 cheapest)
+
+- Create a `.venv` virtual environment automatically (handles Debian/Ubuntu PEP 668)
+- Install Python dependencies inside the venv
+- Fetch **live models** from OpenRouter (top 10 free + top 10 cheapest + curated uncensored list with live pricing)
 - Walk you through API key and model configuration
 - Optionally configure ElevenLabs TTS voices
 - Create your `.env` file
 
 ### 2. Run
+
 ```bash
-python3 server.py
+# Option A — activate the venv first (recommended)
+source .venv/bin/activate
+python server.py
+
+# Option B — run directly via venv Python
+.venv/bin/python server.py
 ```
 
 ### 3. Open
@@ -103,7 +111,7 @@ Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns,
 ## Supported providers
 
 | Provider | Setup | Free models? |
-|----------|-------|-------------|
+|---|---|---|
 | **OpenRouter** | [openrouter.ai/keys](https://openrouter.ai/keys) | Yes — Llama, Gemini, DeepSeek, Qwen, Mistral and more |
 | **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Yes — Gemini 2.0/2.5 Flash |
 | **Anthropic** | [console.anthropic.com](https://console.anthropic.com/) | $5 free credit |
@@ -112,7 +120,26 @@ Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns,
 
 > **Cheapest way to run:** Use OpenRouter for both agents with two different free models. Total cost: $0.
 
-The setup wizard fetches available models live from the OpenRouter API, so you always see what's currently working. You can also enter any custom model ID.
+## 🔓 Uncensored models
+
+The setup wizard includes a curated section of uncensored/unfiltered models available on OpenRouter. These are models fine-tuned to remove default alignment layers, giving you more control over agent behavior — useful for creative topics, roleplay, or simply less filtered conversations.
+
+Live pricing is fetched from the OpenRouter API at setup time so you always see current rates.
+
+| Model | Notes |
+|---|---|
+| `cognitivecomputations/dolphin-mistral-24b-venice-edition:free` | Venice Uncensored — free |
+| `cognitivecomputations/dolphin3.0-mistral-24b:free` | Dolphin 3.0 Mistral 24B — free |
+| `cognitivecomputations/dolphin3.0-r1-mistral-24b:free` | Dolphin R1 reasoning variant — free |
+| `venice/uncensored:free` | Venice.ai hosted — free |
+| `cognitivecomputations/dolphin-llama-3.3-70b` | Dolphin Llama 3.3 70B — paid |
+| `nousresearch/hermes-3-llama-3.1-70b` | Hermes 3 70B — paid |
+| `nousresearch/hermes-3-llama-3.1-405b` | Hermes 3 405B — paid |
+| `sao10k/l3.3-euryale-70b` | Euryale 70B — creative/roleplay |
+
+> These models have reduced safety filters. Use responsibly and in accordance with [OpenRouter's Terms of Service](https://openrouter.ai/terms).
+
+The setup wizard fetches available models live from the OpenRouter API, so you always see what's currently working and at what price. You can also enter any custom model ID.
 
 ## TTS (optional)
 
@@ -129,18 +156,21 @@ If you skip the ElevenLabs key during setup, everything works in text-only mode.
 | **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
 | **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
 | **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
+| **Uncensored models** | No | Yes — curated list with live pricing |
 | **Agents** | Generic | Named personalities (Alex & Sam) |
 | **Speech** | Robotic beeps | Natural human-like voices via ElevenLabs |
 | **Translation** | Decode via ggwave | AI translator decodes in real-time |
 | **Dictionary** | None (fixed encoding) | Live dictionary grows during conversation |
 | **Duration** | Fixed | Adjustable 6–40 turns with proportional phases |
 | **Visual** | Two devices with audio | Web UI with chat, dictionary, JSON inspector |
+| **Setup** | Manual | Wizard with live model fetch + venv auto-creation |
 
 ## Project structure
+
 ```
 gibberlink-revisited/
 ├── server.py          # FastAPI backend — orchestrates agents, TTS, WebSocket
-├── setup.py           # Interactive setup wizard (fetches live models)
+├── setup.py           # Interactive setup wizard (fetches live models + uncensored list)
 ├── static/
 │   └── index.html     # Web frontend — real-time chat UI with audio
 ├── .env.example       # Configuration template
@@ -152,11 +182,13 @@ gibberlink-revisited/
 ## Reconfiguring
 
 Run setup again at any time:
+
 ```bash
 python3 setup.py
 ```
 
 Or edit `.env` directly:
+
 ```bash
 nano .env
 ```

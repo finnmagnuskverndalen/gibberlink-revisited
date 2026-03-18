@@ -1,387 +1,457 @@
 #!/usr/bin/env python3
 """
-GibberLink Revisited — Setup Script
-Run this once to configure your environment.
-Fetches live model data from OpenRouter API.
+GibberLink Revisited — Setup Wizard
+Installs dependencies, fetches live models from OpenRouter, and writes .env
 """
 
 import os
 import sys
-import subprocess
 import json
+import subprocess
 
-BANNER = r"""
-   _____ _ _     _               _     _       _    
-  / ____(_) |   | |             | |   (_)     | |   
- | |  __ _| |__ | |__   ___ _ __| |    _ _ __ | | __
- | | |_ | | '_ \| '_ \ / _ \ '__| |   | | '_ \| |/ /
- | |__| | | |_) | |_) |  __/ |  | |___| | | | |   < 
-  \_____|_|_.__/|_.__/ \___|_|  |_____|_|_| |_|_|\_\
-           R  E  V  I  S  I  T  E  D
-"""
+try:
+    import httpx
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "httpx", "-q"])
+    import httpx
 
-VOICES = [
-    ("21m00Tcm4TlvDq8ikWAM", "Rachel (female, calm)"),
-    ("pNInz6obpgDQGcFmaJgB", "Adam (male, deep)"),
-    ("EXAVITQu4vr4xnSDxMaL", "Bella (female, warm)"),
-    ("ErXwobaYiN019PkySvjV", "Antoni (male, crisp)"),
-    ("MF3mGyEYCl7XYWbV9V6O", "Elli (female, young)"),
-    ("TxGEqnHWrfWFTfGW9XjX", "Josh (male, mature)"),
-]
-
-OTHER_PROVIDERS = [
+# ── Hardcoded uncensored model list ─────────────────────────
+# These are known uncensored/unfiltered models on OpenRouter.
+# Marked (free) where a :free variant exists.
+UNCENSORED_MODELS = [
     {
-        "id": "gemini",
-        "name": "Google Gemini (free tier)",
-        "key_url": "https://aistudio.google.com/apikey",
-        "key_prefix": "",
-        "models": [
-            ("gemini-2.0-flash", "Gemini 2.0 Flash (free)"),
-            ("gemini-2.5-flash-preview-05-20", "Gemini 2.5 Flash (free)"),
-            ("gemini-2.5-pro-preview-05-06", "Gemini 2.5 Pro"),
-        ],
+        "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+        "name": "Venice Uncensored — Dolphin Mistral 24B (free)",
+        "note": "Uncensored fine-tune of Mistral 24B by dphn.ai x Venice.ai",
     },
     {
-        "id": "anthropic",
-        "name": "Anthropic (Claude direct)",
-        "key_url": "https://console.anthropic.com/",
-        "key_prefix": "sk-ant-",
-        "models": [
-            ("claude-sonnet-4-20250514", "Claude Sonnet 4"),
-            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
-        ],
+        "id": "cognitivecomputations/dolphin3.0-mistral-24b:free",
+        "name": "Dolphin 3.0 Mistral 24B (free)",
+        "note": "Uncensored instruct model, stripped of alignment layers",
     },
     {
-        "id": "openai",
-        "name": "OpenAI",
-        "key_url": "https://platform.openai.com/api-keys",
-        "key_prefix": "sk-",
-        "models": [
-            ("gpt-4o-mini", "GPT-4o Mini"),
-            ("gpt-4o", "GPT-4o"),
-        ],
+        "id": "cognitivecomputations/dolphin-llama-3.3-70b",
+        "name": "Dolphin Llama 3.3 70B",
+        "note": "Uncensored Llama 3.3 70B fine-tune — requires credits",
     },
     {
-        "id": "grok",
-        "name": "xAI Grok",
-        "key_url": "https://console.x.ai/",
-        "key_prefix": "xai-",
-        "models": [
-            ("grok-3-mini-fast", "Grok 3 Mini Fast"),
-            ("grok-3-fast", "Grok 3 Fast"),
-        ],
+        "id": "cognitivecomputations/dolphin3.0-r1-mistral-24b:free",
+        "name": "Dolphin 3.0 R1 Mistral 24B (free)",
+        "note": "Reasoning-capable uncensored Dolphin with R1-style CoT",
+    },
+    {
+        "id": "nousresearch/hermes-3-llama-3.1-70b",
+        "name": "Hermes 3 Llama 3.1 70B",
+        "note": "Lightly aligned, highly steerable — requires credits",
+    },
+    {
+        "id": "nousresearch/hermes-3-llama-3.1-405b",
+        "name": "Hermes 3 Llama 3.1 405B",
+        "note": "Largest Hermes — very capable, requires credits",
+    },
+    {
+        "id": "sao10k/l3.3-euryale-70b",
+        "name": "Euryale 70B v2.3",
+        "note": "Creative/roleplay focused, minimal restrictions",
+    },
+    {
+        "id": "venice/uncensored:free",
+        "name": "Venice: Uncensored (free)",
+        "note": "Venice.ai hosted uncensored model — free tier",
     },
 ]
 
+# ── Helpers ──────────────────────────────────────────────────
 
-# ── Helpers ─────────────────────────────────────────────────
-def color(text, code): return f"\033[{code}m{text}\033[0m"
-def green(t):  return color(t, "32")
-def red(t):    return color(t, "31")
-def cyan(t):   return color(t, "36")
-def yellow(t): return color(t, "33")
-def bold(t):   return color(t, "1")
-def dim(t):    return color(t, "2")
-def mag(t):    return color(t, "35")
-
+def bold(s):   return f"\033[1m{s}\033[0m"
+def green(s):  return f"\033[32m{s}\033[0m"
+def yellow(s): return f"\033[33m{s}\033[0m"
+def cyan(s):   return f"\033[36m{s}\033[0m"
+def red(s):    return f"\033[31m{s}\033[0m"
+def dim(s):    return f"\033[2m{s}\033[0m"
 
 def ask(prompt, default=""):
-    suffix = f" [{dim(default)}]" if default else ""
-    val = input(f"  {prompt}{suffix}: ").strip()
+    val = input(f"{prompt} [{default}]: ").strip()
     return val if val else default
 
+def ask_yn(prompt, default=True):
+    hint = "Y/n" if default else "y/N"
+    val = input(f"{prompt} [{hint}]: ").strip().lower()
+    if not val:
+        return default
+    return val.startswith("y")
 
-# ── Fetch OpenRouter models ─────────────────────────────────
-def fetch_openrouter_models():
-    """Fetch live model list from OpenRouter API and return top free + top cheap."""
-    try:
-        import httpx
-    except ImportError:
-        # httpx not installed yet, use urllib
-        import urllib.request
-        req = urllib.request.Request(
-            "https://openrouter.ai/api/v1/models",
-            headers={"User-Agent": "GibberLink-Revisited/1.0"}
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
+VENV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv")
+
+def get_venv_python():
+    """Return the path to the venv Python binary."""
+    if sys.platform == "win32":
+        return os.path.join(VENV_DIR, "Scripts", "python.exe")
+    return os.path.join(VENV_DIR, "bin", "python")
+
+def ensure_venv():
+    """Create .venv if it doesn't exist, return venv Python path."""
+    venv_python = get_venv_python()
+    if not os.path.exists(venv_python):
+        print(dim("  Creating virtual environment in .venv ..."))
+        subprocess.check_call([sys.executable, "-m", "venv", VENV_DIR])
+        print(green("  ✓ Virtual environment created"))
+    return venv_python
+
+def install_deps():
+    print(bold("\n📦 Installing Python dependencies..."))
+
+    # Detect if we're already inside the .venv
+    in_venv = (
+        hasattr(sys, "real_prefix")
+        or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
+    )
+
+    if in_venv:
+        # Already in a venv — install directly
+        pip = [sys.executable, "-m", "pip"]
     else:
-        resp = httpx.get("https://openrouter.ai/api/v1/models", timeout=15)
-        data = resp.json()
+        # System Python on Debian/Ubuntu (PEP 668) — use/create .venv
+        venv_python = ensure_venv()
+        pip = [venv_python, "-m", "pip"]
 
-    models = data.get("data", [])
+        # Re-exec setup.py inside the venv so the rest of the wizard
+        # can import freshly installed packages (httpx etc.)
+        if sys.executable != venv_python:
+            print(dim(f"  Re-launching setup inside .venv..."))
+            os.execv(venv_python, [venv_python] + sys.argv)
 
-    # Filter to text chat models only
-    chat_models = []
+    subprocess.check_call(pip + ["install", "-r", "requirements.txt", "-q"])
+    print(green("  ✓ Dependencies installed"))
+
+    print(dim(f"\n  Tip: to run the server use the venv Python:"))
+    print(dim(f"       .venv/bin/python server.py"))
+    print(dim(f"  Or activate the venv first:"))
+    print(dim(f"       source .venv/bin/activate && python server.py\n"))
+
+# ── OpenRouter live model fetch ──────────────────────────────
+
+def fetch_openrouter_models(api_key: str):
+    """Fetch available models from OpenRouter, return top free + cheapest paid."""
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            resp.raise_for_status()
+            models = resp.json().get("data", [])
+    except Exception as e:
+        print(yellow(f"  ⚠ Could not fetch live models: {e}"))
+        return [], []
+
+    free_models = []
+    paid_models = []
+
+    # Build a live pricing lookup keyed by model id
+    live_pricing = {m.get("id", ""): m.get("pricing", {}) for m in models}
+
+    # Enrich hardcoded uncensored list with live pricing data
+    for u in UNCENSORED_MODELS:
+        u["pricing"] = live_pricing.get(u["id"], {})
+
     for m in models:
-        model_id = m.get("id", "")
-        name = m.get("name", model_id)
+        mid = m.get("id", "")
         pricing = m.get("pricing", {})
-        prompt_price = float(pricing.get("prompt", "0") or "0")
-        context = m.get("context_length", 0)
+        try:
+            prompt_cost = float(pricing.get("prompt", "0") or 0)
+        except (ValueError, TypeError):
+            prompt_cost = 0.0
 
-        # Skip non-chat, image-only, embedding models
-        if not model_id or "/embed" in model_id:
+        # Skip uncensored — we handle those separately
+        if any(tag in mid.lower() for tag in ["dolphin", "hermes", "euryale", "venice/uncensored"]):
             continue
 
-        chat_models.append({
-            "id": model_id,
-            "name": name,
-            "prompt_price": prompt_price,
-            "context": context,
-            "is_free": prompt_price == 0,
-        })
+        if mid.endswith(":free") or prompt_cost == 0.0:
+            free_models.append(m)
+        else:
+            paid_models.append((prompt_cost, m))
 
-    # Split into free and paid
-    free_models = [m for m in chat_models if m["is_free"]]
-    paid_models = [m for m in chat_models if not m["is_free"]]
-
-    # Sort free by context length (bigger = better), paid by price (cheapest first)
-    free_models.sort(key=lambda m: m["context"], reverse=True)
-    paid_models.sort(key=lambda m: m["prompt_price"])
-
-    # Top 10 free, top 10 cheapest paid
+    paid_models.sort(key=lambda x: x[0])
     top_free = free_models[:10]
-    top_paid = paid_models[:10]
-
+    top_paid = [m for _, m in paid_models[:10]]
     return top_free, top_paid
 
 
-def format_price(price_per_token):
-    """Format price per token to $/M tokens."""
-    per_million = price_per_token * 1_000_000
-    if per_million < 0.01:
-        return "~free"
-    if per_million < 1:
-        return f"${per_million:.2f}/M"
-    return f"${per_million:.1f}/M"
+def display_models(models, label, start_idx=1):
+    print(bold(f"\n  {label}:"))
+    for i, m in enumerate(models, start=start_idx):
+        name = m.get("name") or m.get("id", "")
+        mid = m.get("id", "")
+        ctx = m.get("context_length", "?")
+        pricing = m.get("pricing", {})
+        try:
+            cost = float(pricing.get("prompt", 0) or 0)
+            cost_str = "free" if cost == 0 else f"${cost * 1e6:.2f}/M tok"
+        except (ValueError, TypeError):
+            cost_str = "?"
+        print(f"    {cyan(str(i).rjust(2))}. {name[:45]:<45} {dim(cost_str)}  {dim(mid)}")
+    return start_idx + len(models)
 
 
-def pick_openrouter_model(label, top_free, top_paid):
-    """Interactive model picker with live OpenRouter data."""
-    print(f"\n  {bold(f'Pick model for {label}')}")
+def display_uncensored_models(start_idx):
+    print(bold(f"\n  🔓 Uncensored / Unfiltered models:"))
+    for i, m in enumerate(UNCENSORED_MODELS, start=start_idx):
+        pricing = m.get("pricing", {})
+        try:
+            prompt_cost = float(pricing.get("prompt", "0") or 0)
+            compl_cost  = float(pricing.get("completion", "0") or 0)
+            if prompt_cost == 0 and compl_cost == 0:
+                cost_str = green("free")
+            else:
+                cost_str = yellow(f"${prompt_cost * 1e6:.2f}/${compl_cost * 1e6:.2f} per M tok (in/out)")
+        except (ValueError, TypeError):
+            cost_str = dim("price unknown")
 
-    # Build numbered list
-    options = []
-    idx = 0
+        name = m["name"].split(" (")[0]  # strip old hardcoded (free)/(paid) suffix
+        print(f"    {cyan(str(i).rjust(2))}. {name:<48} {cost_str}")
+        print(f"        {dim(m['note'])}")
+        print(f"        {dim(m['id'])}")
+    return start_idx + len(UNCENSORED_MODELS)
 
-    print(f"\n    {dim('── FREE (no credits needed) ──')}")
-    print(f"    {cyan('0')}. {mag('openrouter/free')} — Auto-router (picks best available)")
-    options.append(("openrouter/free", "Auto-router (free)"))
 
-    for m in top_free:
-        idx += 1
-        ctx = f"{m['context']//1000}K" if m['context'] else "?"
-        print(f"    {cyan(str(idx))}. {m['name']} {dim(f'[{ctx} ctx]')}")
-        options.append((m["id"], m["name"]))
+def pick_model(label, free_models, paid_models, default_id):
+    """Interactive model picker including uncensored section."""
+    all_std = free_models + paid_models
+    next_idx = display_models(free_models, "Top free models")
+    next_idx = display_models(paid_models, "Cheapest paid models", start_idx=next_idx)
+    uncensored_start = next_idx
+    next_idx = display_uncensored_models(start_idx=uncensored_start)
 
-    print(f"\n    {dim('── CHEAPEST PAID ──')}")
-    for m in top_paid:
-        idx += 1
-        price = format_price(m["prompt_price"])
-        ctx = f"{m['context']//1000}K" if m['context'] else "?"
-        print(f"    {cyan(str(idx))}. {m['name']} {dim(f'[{price} in, {ctx} ctx]')}")
-        options.append((m["id"], m["name"]))
-
-    print(f"\n    {dim('── CUSTOM ──')}")
-    idx += 1
-    print(f"    {cyan(str(idx))}. Enter a custom model ID")
-    options.append(("__custom__", "Custom"))
+    print(f"\n    {cyan('0')}. Enter a custom model ID")
+    print()
 
     while True:
-        choice = input(f"  Choice [0]: ").strip()
-        if not choice:
-            return options[0]
+        raw = input(f"  Pick {label} model number (or 0 for custom) [default: {default_id}]: ").strip()
+        if not raw:
+            return default_id
+
         try:
-            i = int(choice)
-            if 0 <= i < len(options):
-                selected = options[i]
-                if selected[0] == "__custom__":
-                    print(f"    {dim('Browse models at: https://openrouter.ai/models')}")
-                    custom_id = ask("Model ID (e.g. anthropic/claude-sonnet-4)")
-                    if not custom_id:
-                        print(f"    {red('Required.')}"); continue
-                    return (custom_id, custom_id.split("/")[-1])
-                return selected
+            choice = int(raw)
         except ValueError:
-            pass
-        print(f"    {red('Invalid, try again.')}")
-
-
-def pick_other_provider_model(agent_label):
-    """Pick from non-OpenRouter providers."""
-    print(f"\n  {bold(f'Provider for {agent_label}')}")
-    for i, p in enumerate(OTHER_PROVIDERS, 1):
-        print(f"    {cyan(str(i))}. {p['name']}")
-
-    while True:
-        choice = input(f"  Choice [1]: ").strip()
-        if not choice:
-            provider = OTHER_PROVIDERS[0]; break
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(OTHER_PROVIDERS):
-                provider = OTHER_PROVIDERS[idx]; break
-        except ValueError:
-            pass
-        print(f"    {red('Invalid.')}")
-
-    print(f"\n  Get your key at: {cyan(provider['key_url'])}")
-    api_key = ask("API key")
-    if not api_key:
-        print(f"  {red('Required.')}"); sys.exit(1)
-
-    print(f"\n  {bold('Model:')}")
-    for i, (mid, mname) in enumerate(provider["models"], 1):
-        print(f"    {cyan(str(i))}. {mname}")
-    while True:
-        choice = input(f"  Choice [1]: ").strip()
-        if not choice:
-            model_id, model_name = provider["models"][0]; break
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(provider["models"]):
-                model_id, model_name = provider["models"][idx]; break
-        except ValueError:
-            pass
-        print(f"    {red('Invalid.')}")
-
-    return {
-        "provider": provider["id"],
-        "api_key": api_key,
-        "model": model_id,
-        "display_name": model_name,
-    }
-
-
-# ── Main ────────────────────────────────────────────────────
-def main():
-    print(color(BANNER, "38;5;208"))
-    print(f"  {bold('Setup Wizard')}")
-    print(f"  {dim('Installs deps, fetches live models, creates .env')}")
-
-    # Step 1: deps
-    print(f"\n  {bold('Step 1:')} Installing dependencies...")
-    for flags in [["--break-system-packages"], []]:
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "-q"] + flags,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            print(f"  {green('✓')} Done"); break
-        except subprocess.CalledProcessError:
+            print(red("  Please enter a number."))
             continue
+
+        if choice == 0:
+            custom = input("  Enter custom model ID: ").strip()
+            return custom if custom else default_id
+
+        std_count = len(all_std)
+        if 1 <= choice <= std_count:
+            return all_std[choice - 1]["id"]
+
+        uncensored_idx = choice - uncensored_start
+        if 0 <= uncensored_idx < len(UNCENSORED_MODELS):
+            selected = UNCENSORED_MODELS[uncensored_idx]
+            print(yellow(f"\n  ⚠  You selected an uncensored model: {selected['name']}"))
+            print(yellow(     "     These models have reduced safety filters."))
+            print(yellow(     "     Use responsibly and in accordance with OpenRouter's ToS.\n"))
+            confirm = ask_yn("  Confirm selection?", default=True)
+            if confirm:
+                return selected["id"]
+            else:
+                print("  Selection cancelled, please pick again.")
+                continue
+
+        print(red(f"  Invalid choice. Pick 1–{next_idx - 1} or 0 for custom."))
+
+
+# ── Provider config ──────────────────────────────────────────
+
+PROVIDER_DEFAULTS = {
+    "openrouter": {
+        "key_hint": "sk-or-...",
+        "key_env": "OPENROUTER_API_KEY",
+        "url": "https://openrouter.ai/keys",
+    },
+    "anthropic": {
+        "key_hint": "sk-ant-...",
+        "key_env": "ANTHROPIC_API_KEY",
+        "url": "https://console.anthropic.com",
+    },
+    "openai": {
+        "key_hint": "sk-...",
+        "key_env": "OPENAI_API_KEY",
+        "url": "https://platform.openai.com/api-keys",
+    },
+    "gemini": {
+        "key_hint": "AIza...",
+        "key_env": "GEMINI_API_KEY",
+        "url": "https://aistudio.google.com/apikey",
+    },
+    "grok": {
+        "key_hint": "xai-...",
+        "key_env": "GROK_API_KEY",
+        "url": "https://console.x.ai",
+    },
+}
+
+PROVIDERS = list(PROVIDER_DEFAULTS.keys())
+
+def pick_provider(label, default="openrouter"):
+    print(bold(f"\n  {label} provider:"))
+    for i, p in enumerate(PROVIDERS, 1):
+        marker = green("✓") if p == default else " "
+        print(f"    {marker} {cyan(str(i))}. {p}")
+    raw = input(f"  Pick provider [default: {default}]: ").strip()
+    if not raw:
+        return default
+    try:
+        idx = int(raw) - 1
+        if 0 <= idx < len(PROVIDERS):
+            return PROVIDERS[idx]
+    except ValueError:
+        if raw in PROVIDERS:
+            return raw
+    return default
+
+
+def configure_agent(label, default_provider="openrouter", default_model=None,
+                    free_models=None, paid_models=None):
+    print(bold(f"\n{'─'*50}"))
+    print(bold(f"  {label}"))
+    print(f"{'─'*50}")
+
+    provider = pick_provider(f"{label} — provider", default=default_provider)
+    info = PROVIDER_DEFAULTS[provider]
+
+    existing_key = os.environ.get(info["key_env"], "")
+    if existing_key:
+        print(f"  {green('✓')} Found existing {info['key_env']} in environment")
+        api_key = existing_key
     else:
-        print(f"  {red('✗')} Failed. Run: pip install -r requirements.txt")
+        print(f"  Get your key at: {cyan(info['url'])}")
+        api_key = ask(f"  {label} API key ({info['key_hint']})", default="")
 
-    # Step 2: provider choice
-    print(f"\n  {bold('Step 2:')} Choose provider")
-    print(f"    {cyan('1')}. {bold('OpenRouter')} {dim('(recommended — free models, one API key)')}")
-    print(f"    {cyan('2')}. Other (Gemini, Anthropic, OpenAI, Grok)")
-
-    provider_choice = ask("Choice", "1")
-    use_openrouter = provider_choice != "2"
-
-    if use_openrouter:
-        # Fetch live models
-        print(f"\n  {bold('Step 3:')} Fetching live models from OpenRouter...")
-        try:
-            top_free, top_paid = fetch_openrouter_models()
-            print(f"  {green('✓')} Found {len(top_free)} free + {len(top_paid)} cheap models")
-        except Exception as e:
-            print(f"  {red('✗')} Could not fetch models: {e}")
-            print(f"  {dim('Falling back to manual entry...')}")
-            top_free, top_paid = [], []
-
-        # API key
-        print(f"\n  Get your key at: {cyan('https://openrouter.ai/keys')}")
-        api_key = ask("OpenRouter API key")
-        if not api_key:
-            print(f"  {red('Required.')}"); sys.exit(1)
-        if not api_key.startswith("sk-or-"):
-            print(f"  {yellow('⚠')} Doesn't start with 'sk-or-' — might not work")
-        else:
-            print(f"  {green('✓')} Key accepted")
-
-        if top_free or top_paid:
-            model_a_id, model_a_name = pick_openrouter_model("Agent A", top_free, top_paid)
-            print(f"  {green('✓')} Agent A → {bold(model_a_name)}")
-
-            print(f"\n  {dim('Pick a DIFFERENT model for Agent B for more interesting conversations!')}")
-            model_b_id, model_b_name = pick_openrouter_model("Agent B", top_free, top_paid)
-            print(f"  {green('✓')} Agent B → {bold(model_b_name)}")
-        else:
-            # Manual fallback
-            model_a_id = ask("Agent A model ID", "openrouter/free")
-            model_a_name = model_a_id.split("/")[-1]
-            model_b_id = ask("Agent B model ID", "openrouter/free")
-            model_b_name = model_b_id.split("/")[-1]
-
-        agent_a = {"provider": "openrouter", "api_key": api_key, "model": model_a_id, "display_name": model_a_name}
-        agent_b = {"provider": "openrouter", "api_key": api_key, "model": model_b_id, "display_name": model_b_name}
-
+    if provider == "openrouter" and free_models is not None:
+        model = pick_model(label, free_models, paid_models,
+                           default_id=default_model or "deepseek/deepseek-chat-v3-0324:free")
     else:
-        print(f"\n  {bold('Step 3:')} Configure agents")
-        agent_a = pick_other_provider_model("Agent A")
-        agent_b = pick_other_provider_model("Agent B")
+        fallbacks = {
+            "anthropic": "claude-3-5-haiku-20241022",
+            "openai": "gpt-4o-mini",
+            "gemini": "gemini-2.0-flash",
+            "grok": "grok-3-mini-beta",
+        }
+        model = ask(f"  Model ID", default=default_model or fallbacks.get(provider, ""))
 
-    # TTS
-    print(f"\n  {bold('Step 4:')} Text-to-Speech {dim('(optional)')}")
-    print(f"  {dim('ElevenLabs: 10K chars/month free, no credit card.')}")
-    print(f"  {dim('Key: https://elevenlabs.io/app/settings/api-keys')}")
-    elevenlabs_key = ask("ElevenLabs key (enter to skip)")
+    return provider, api_key, model
 
-    voice_a, voice_b = VOICES[0][0], VOICES[1][0]
-    if elevenlabs_key:
-        print(f"  {green('✓')} TTS enabled")
-        print(f"\n  {bold('Voice for Agent A:')}")
-        for i, (v, n) in enumerate(VOICES, 1):
-            print(f"    {cyan(str(i))}. {n}")
-        va = input(f"  Choice [1]: ").strip()
-        va_idx = (int(va) - 1) if va.isdigit() and 0 < int(va) <= len(VOICES) else 0
-        voice_a = VOICES[va_idx][0]
 
-        remaining = [(v, n) for v, n in VOICES if v != voice_a]
-        print(f"\n  {bold('Voice for Agent B:')}")
-        for i, (v, n) in enumerate(remaining, 1):
-            print(f"    {cyan(str(i))}. {n}")
-        vb = input(f"  Choice [1]: ").strip()
-        vb_idx = (int(vb) - 1) if vb.isdigit() and 0 < int(vb) <= len(remaining) else 0
-        voice_b = remaining[vb_idx][0]
-    else:
-        print(f"  {yellow('○')} Skipped — text-only mode")
+# ── ElevenLabs TTS ───────────────────────────────────────────
 
-    # Write .env
-    print(f"\n  {bold('Step 5:')} Writing .env...")
-    if os.path.exists(".env"):
-        if ask(".env exists. Overwrite? (y/n)", "y").lower() != "y":
-            print(f"  {dim('Skipped.')}"); return
+def configure_tts():
+    print(bold(f"\n{'─'*50}"))
+    print(bold("  🔊 Text-to-Speech (ElevenLabs — optional)"))
+    print(f"{'─'*50}")
+    print("  Free tier: 10K characters/month, no credit card needed.")
+    print(f"  Get a key at: {cyan('https://elevenlabs.io/app/settings/api-keys')}")
+    print(dim("  (Press Enter to skip TTS and run in text-only mode)"))
 
-    with open(".env", "w") as f:
-        f.write(f"""# GibberLink Revisited — Auto-generated
-AGENT_A_PROVIDER={agent_a['provider']}
-AGENT_A_API_KEY={agent_a['api_key']}
-AGENT_A_MODEL={agent_a['model']}
-AGENT_B_PROVIDER={agent_b['provider']}
-AGENT_B_API_KEY={agent_b['api_key']}
-AGENT_B_MODEL={agent_b['model']}
-ELEVENLABS_API_KEY={elevenlabs_key or ''}
+    api_key = ask("  ElevenLabs API key", default="")
+    if not api_key:
+        print(dim("  Skipping TTS — running in text-only mode"))
+        return "", "21m00Tcm4TlvDq8ikWAM", "pNInz6obpgDQGcFmaJgB"
+
+    print(f"\n  Default voices: Alex={dim('Rachel')}  Sam={dim('Adam')}")
+    print(dim("  (Press Enter to keep defaults, or paste a voice ID from elevenlabs.io/voice-library)"))
+    voice_a = ask("  Alex voice ID", default="21m00Tcm4TlvDq8ikWAM")
+    voice_b = ask("  Sam voice ID",  default="pNInz6obpgDQGcFmaJgB")
+    return api_key, voice_a, voice_b
+
+
+# ── Write .env ───────────────────────────────────────────────
+
+def write_env(agent_a, agent_b, tts):
+    a_provider, a_key, a_model = agent_a
+    b_provider, b_key, b_model = agent_b
+    tts_key, voice_a, voice_b = tts
+
+    env_content = f"""# GibberLink Revisited — generated by setup.py
+# Re-run `python3 setup.py` at any time to reconfigure.
+
+# ── Agent A (Alex) ───────────────────────────────────────────
+AGENT_A_PROVIDER={a_provider}
+AGENT_A_API_KEY={a_key}
+AGENT_A_MODEL={a_model}
+
+# ── Agent B (Sam) ────────────────────────────────────────────
+AGENT_B_PROVIDER={b_provider}
+AGENT_B_API_KEY={b_key}
+AGENT_B_MODEL={b_model}
+
+# ── ElevenLabs TTS (optional) ────────────────────────────────
+ELEVENLABS_API_KEY={tts_key}
 AGENT_A_VOICE_ID={voice_a}
 AGENT_B_VOICE_ID={voice_b}
 ELEVENLABS_MODEL=eleven_flash_v2_5
+
+# ── Server ───────────────────────────────────────────────────
 HOST=127.0.0.1
 PORT=8765
-""")
-    print(f"  {green('✓')} .env created")
+"""
+    with open(".env", "w") as f:
+        f.write(env_content)
+    print(green("\n  ✓ .env written"))
 
-    print(f"\n  {green('═' * 46)}")
-    print(f"  {green(bold('  Setup complete!'))}")
-    print(f"  {green('═' * 46)}")
-    print(f"\n  Agent A: {bold(agent_a['display_name'])} ({agent_a['provider']})")
-    print(f"  Agent B: {bold(agent_b['display_name'])} ({agent_b['provider']})")
-    print(f"  TTS:     {bold('ElevenLabs') if elevenlabs_key else dim('Disabled')}")
-    print(f"\n  Run:  {cyan('python3 server.py')}")
-    print(f"  Open: {cyan('http://127.0.0.1:8765')}\n")
+
+# ── Main ─────────────────────────────────────────────────────
+
+def main():
+    print(bold("\n🔗 GibberLink Revisited — Setup Wizard\n"))
+
+    install_deps()
+
+    # Try to get OpenRouter key early so we can fetch live models
+    print(bold("\n🌐 Fetching live models from OpenRouter..."))
+    or_key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not or_key:
+        print(dim("  (Enter your OpenRouter key now to fetch live models, or press Enter to skip)"))
+        or_key = input("  OpenRouter API key: ").strip()
+
+    free_models, paid_models = [], []
+    if or_key:
+        free_models, paid_models = fetch_openrouter_models(or_key)
+        print(green(f"  ✓ Fetched {len(free_models)} free + {len(paid_models)} cheapest paid models"))
+        print(green(f"  ✓ Plus {len(UNCENSORED_MODELS)} curated uncensored models available"))
+    else:
+        print(yellow("  ⚠ Skipping live fetch — you can still enter any model ID manually"))
+
+    print(bold("\n🤖 Configure Agents"))
+
+    agent_a = configure_agent(
+        "Agent A — Alex",
+        default_provider="openrouter",
+        default_model="deepseek/deepseek-chat-v3-0324:free",
+        free_models=free_models,
+        paid_models=paid_models,
+    )
+
+    # If Agent A uses OpenRouter, pre-fill its key for Agent B
+    if agent_a[0] == "openrouter" and or_key and not agent_a[1]:
+        agent_a = (agent_a[0], or_key, agent_a[2])
+
+    agent_b = configure_agent(
+        "Agent B — Sam",
+        default_provider="openrouter",
+        default_model="meta-llama/llama-4-maverick:free",
+        free_models=free_models,
+        paid_models=paid_models,
+    )
+
+    tts = configure_tts()
+
+    write_env(agent_a, agent_b, tts)
+
+    print(bold("\n✅ Setup complete!\n"))
+    print(f"  Run the server:  {cyan('python3 server.py')}")
+    print(f"  Then open:       {cyan('http://127.0.0.1:8765')}")
+    print()
 
 
 if __name__ == "__main__":
