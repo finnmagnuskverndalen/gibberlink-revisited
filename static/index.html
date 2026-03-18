@@ -7,38 +7,20 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #08080c;
-  --bg2: #0e0e14;
-  --bg3: #14141e;
-  --bg4: #1a1a28;
-  --border: #1e1e2e;
-  --border2: #2a2a3e;
-  --text: #e0e0ea;
-  --text-mid: #999;
-  --text-dim: #555;
-  --orange: #ff6b3d;
-  --blue: #3d8bff;
-  --green: #34d399;
-  --yellow: #fbbf24;
-  --magenta: #c084fc;
-  --red: #f87171;
-  --cyan: #22d3ee;
+  --bg: #08080c; --bg2: #0e0e14; --bg3: #14141e; --bg4: #1a1a28;
+  --border: #1e1e2e; --border2: #2a2a3e;
+  --text: #e0e0ea; --text-mid: #999; --text-dim: #555;
+  --orange: #ff6b3d; --blue: #3d8bff; --green: #34d399;
+  --yellow: #fbbf24; --magenta: #c084fc; --red: #f87171; --cyan: #22d3ee;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-serif; height: 100vh; overflow: hidden; }
-
-/* ── Layout ─────────────────────────── */
 .app { display: flex; flex-direction: column; height: 100vh; }
-.top-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 20px; background: var(--bg2); border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
+.top-bar { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .logo { display: flex; align-items: center; gap: 10px; }
 .logo-icon { font-size: 1.3rem; }
 .logo-text { font-weight: 800; font-size: 1.05rem; letter-spacing: -0.02em; }
 .logo-text span { color: var(--orange); }
-
 .phase-bar { display: flex; align-items: center; gap: 6px; }
 .phase-step { display: flex; align-items: center; gap: 5px; }
 .phase-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border2); transition: all 0.5s; }
@@ -47,22 +29,14 @@ body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-se
 .phase-label { font-size: 0.68rem; font-weight: 500; color: var(--text-dim); transition: all 0.3s; }
 .phase-label.active { color: var(--text); font-weight: 600; }
 .phase-arrow { color: var(--text-dim); font-size: 0.6rem; margin: 0 2px; }
-
 .controls { display: flex; gap: 8px; align-items: center; }
 .turn-badge { font-family: 'IBM Plex Mono'; font-size: 0.72rem; color: var(--text-dim); background: var(--bg3); padding: 4px 12px; border-radius: 6px; }
 .btn { padding: 7px 18px; border-radius: 8px; border: 1px solid var(--border2); background: var(--bg3); color: var(--text-mid); font-size: 0.8rem; font-family: 'Outfit'; cursor: pointer; transition: all 0.15s; }
 .btn:hover { background: var(--bg4); color: var(--text); }
-.btn-primary { background: var(--orange); border-color: var(--orange); color: #fff; }
-.btn-primary:hover { filter: brightness(1.15); }
 .btn-danger { border-color: rgba(248,113,113,0.3); color: var(--red); }
-
-/* ── Main content ───────────────────── */
 .main { flex: 1; display: flex; overflow: hidden; }
-
-/* Chat column */
 .chat-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .chat-scroll { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; }
-
 .msg { max-width: 85%; padding: 14px 18px; border-radius: 14px; background: var(--bg3); border: 1px solid var(--border); position: relative; animation: fadeIn 0.3s ease; }
 .msg.agent-a { align-self: flex-start; border-left: 3px solid var(--orange); }
 .msg.agent-b { align-self: flex-end; border-right: 3px solid var(--blue); }
@@ -75,51 +49,35 @@ body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-se
 .msg-phase.detected { background: rgba(251,191,36,0.1); color: var(--yellow); }
 .msg-phase.compressing { background: rgba(192,132,252,0.1); color: var(--magenta); }
 .msg-phase.alien { background: rgba(248,113,113,0.1); color: var(--red); }
-
 .msg-text { font-size: 0.9rem; line-height: 1.65; color: var(--text); white-space: pre-wrap; }
 .msg-translation { margin-top: 10px; padding: 8px 12px; border-radius: 8px; background: rgba(34,211,238,0.06); border: 1px solid rgba(34,211,238,0.12); font-size: 0.82rem; color: var(--cyan); line-height: 1.5; }
 .msg-translation::before { content: '🌐 '; }
 .msg-audio-btn { margin-top: 8px; padding: 4px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 0.72rem; cursor: pointer; font-family: 'Outfit'; }
 .msg-audio-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
-.msg-audio-btn.playing { color: var(--green); border-color: rgba(52,211,153,0.3); }
-
 .thinking { align-self: center; color: var(--text-dim); font-size: 0.82rem; padding: 12px; display: flex; align-items: center; gap: 8px; }
 .thinking-dots span { animation: pulse 1s ease-in-out infinite; font-size: 0.7rem; }
 .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
 .thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
-
 @keyframes pulse { 0%,100% { opacity: 0.2; } 50% { opacity: 1; } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-/* Side panel */
 .side { width: 320px; background: var(--bg2); border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
 .side-section { padding: 16px; border-bottom: 1px solid var(--border); }
 .side-title { font-family: 'IBM Plex Mono'; font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 10px; }
-
 .agent-info { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .agent-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .agent-label { font-weight: 600; font-size: 0.85rem; }
 .agent-model { font-family: 'IBM Plex Mono'; font-size: 0.7rem; color: var(--text-dim); }
 .vs { text-align: center; font-size: 0.72rem; color: var(--text-dim); font-weight: 600; margin: 2px 0; }
-
 .topic-text { font-size: 0.82rem; color: var(--text-mid); line-height: 1.5; }
-
-/* Dictionary */
 .dict-scroll { flex: 1; overflow-y: auto; padding: 16px; }
 .dict-entry { display: flex; align-items: center; gap: 6px; padding: 4px 8px; margin-bottom: 3px; border-radius: 5px; background: rgba(192,132,252,0.04); font-size: 0.73rem; animation: fadeIn 0.3s; }
 .dict-key { font-family: 'IBM Plex Mono'; font-weight: 600; color: var(--magenta); flex-shrink: 0; }
 .dict-arrow { color: var(--text-dim); }
 .dict-val { color: var(--text-mid); }
 .dict-empty { color: var(--text-dim); font-size: 0.8rem; font-style: italic; }
-
-/* JSON Panel */
 .json-toggle { padding: 16px; border-top: 1px solid var(--border); }
 .json-pre { font-family: 'IBM Plex Mono'; font-size: 0.65rem; line-height: 1.6; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; max-height: 200px; overflow: auto; color: var(--text-dim); margin-top: 8px; white-space: pre-wrap; word-break: break-all; }
-.json-pre .jk { color: var(--cyan); }
-.json-pre .jv { color: var(--yellow); }
-.json-pre .js { color: var(--green); }
-
-/* ── Setup Screen ───────────────────── */
+.json-pre .jk { color: var(--cyan); } .json-pre .jv { color: var(--yellow); } .json-pre .js { color: var(--green); }
 .setup { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
 .setup-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 20px; padding: 48px 40px; max-width: 500px; width: 100%; }
 .setup-logo { text-align: center; margin-bottom: 32px; }
@@ -134,67 +92,27 @@ body { background: var(--bg); color: var(--text); font-family: 'Outfit', sans-se
 .launch-btn { width: 100%; padding: 14px; background: linear-gradient(135deg, var(--orange), #ff3d6b); border: none; border-radius: 12px; color: #fff; font-size: 1rem; font-weight: 700; font-family: 'Outfit'; cursor: pointer; margin-top: 8px; }
 .launch-btn:hover { filter: brightness(1.1); }
 .setup-note { font-size: 0.7rem; color: var(--text-dim); text-align: center; margin-top: 14px; }
-
-/* Scrollbar */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
-
-@media (max-width: 800px) {
-  .side { display: none; }
-  .phase-label { display: none; }
-}
+::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+@media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
 </style>
 </head>
 <body>
-
 <div id="app" class="app"></div>
-
 <script>
-const PHASES = ['normal', 'detected', 'compressing', 'alien'];
-const PHASE_LABELS = { normal: '💬 Human', detected: '🔍 Detected', compressing: '⚡ Compressing', alien: '👽 Evolved' };
-const PHASE_COLORS = { normal: '#34d399', detected: '#fbbf24', compressing: '#c084fc', alien: '#f87171' };
+const PHASES = ['normal','detected','compressing','alien'];
+const PHASE_LABELS = {normal:'💬 Human',detected:'🔍 Detected',compressing:'⚡ Compressing',alien:'👽 Evolved'};
+const PHASE_COLORS = {normal:'#34d399',detected:'#fbbf24',compressing:'#c084fc',alien:'#f87171'};
 
-let state = {
-  screen: 'setup', // setup | running | complete
-  ws: null,
-  config: {},
-  messages: [],
-  dictionary: {},
-  phase: 'normal',
-  turn: 0,
-  thinking: null,
-  lastProtocol: null,
-  showJson: false,
-  audioQueue: [],
-  isPlaying: false,
-};
+let state = {screen:'setup',ws:null,config:{},messages:[],dictionary:{},phase:'normal',turn:0,totalTurns:20,thinking:null,lastProtocol:null,showJson:false};
 
-// ── Audio (queued playback) ────────────
+// ── Audio ──────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let audioQueue = [];
-let isPlayingAudio = false;
-
-function queueAudio(b64) {
-  audioQueue.push(b64);
-  if (!isPlayingAudio) drainAudioQueue();
-}
-
-async function drainAudioQueue() {
-  if (isPlayingAudio || audioQueue.length === 0) return;
-  isPlayingAudio = true;
-  while (audioQueue.length > 0) {
-    const b64 = audioQueue.shift();
-    try {
-      if (audioCtx.state === 'suspended') await audioCtx.resume();
-      await playAudioB64(b64);
-    } catch (e) { console.warn('Audio error:', e); }
-  }
-  isPlayingAudio = false;
-}
 
 async function playAudioB64(b64) {
-  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  if (audioCtx.state === 'suspended') await audioCtx.resume();
+  const raw = atob(b64);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
   const buffer = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
   return new Promise(resolve => {
     const source = audioCtx.createBufferSource();
@@ -206,12 +124,12 @@ async function playAudioB64(b64) {
 }
 
 // ── WebSocket ─────────────────────────
-function connect(topic) {
+function connect(topic, turns) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({ topic }));
+    ws.send(JSON.stringify({ topic, turns }));
     state.screen = 'running';
     render();
   };
@@ -223,8 +141,7 @@ function connect(topic) {
       state.thinking = data.agent;
       state.phase = data.phase;
       state.turn = data.turn;
-      render();
-      scrollChat();
+      render(); scrollChat();
     }
 
     if (data.type === 'message') {
@@ -234,247 +151,138 @@ function connect(topic) {
       state.lastProtocol = data.protocol_message;
       state.phase = data.phase;
       state.turn = data.turn + 1;
-      render();
-      scrollChat();
+      render(); scrollChat();
+
+      // Play audio then ack
+      if (data.audio) {
+        try { await playAudioB64(data.audio); } catch(err) { console.warn('Audio error:', err); }
+      }
+      ws.send(JSON.stringify({type:'ack'}));
     }
 
-    // Audio arrives separately — queue it for playback
-    if (data.type === 'audio') {
-      const msg = state.messages.find(m => m.turn === data.turn && m.agent === data.agent);
-      if (msg) msg.audio = data.audio;
-      queueAudio(data.audio);
-      render();
-    }
-
-    // Translation arrives separately (async, non-blocking)
     if (data.type === 'translation') {
       const msg = state.messages.find(m => m.turn === data.turn && m.agent === data.agent);
       if (msg) { msg.translation = data.translation; render(); scrollChat(); }
     }
 
-    if (data.type === 'complete') {
-      state.screen = 'complete';
-      render();
-    }
+    if (data.type === 'complete') { state.screen = 'complete'; render(); }
 
     if (data.type === 'error') {
       state.thinking = null;
-      state.messages.push({ type: 'error', text: data.message, phase: state.phase, turn: state.turn });
-      render();
-      scrollChat();
+      state.messages.push({type:'error',text:data.message,phase:state.phase,turn:state.turn});
+      render(); scrollChat();
     }
   };
 
-  ws.onclose = () => {
-    if (state.screen === 'running') {
-      state.screen = 'complete';
-      render();
-    }
-  };
-
+  ws.onclose = () => { if (state.screen === 'running') { state.screen = 'complete'; render(); } };
   state.ws = ws;
 }
 
-function scrollChat() {
-  requestAnimationFrame(() => {
-    const el = document.getElementById('chat-scroll');
-    if (el) el.scrollTop = el.scrollHeight;
-  });
-}
-
-// ── Render ─────────────────────────────
-function render() {
-  const app = document.getElementById('app');
-  if (state.screen === 'setup') return renderSetup(app);
-  return renderMain(app);
-}
+function scrollChat() { requestAnimationFrame(() => { const el = document.getElementById('chat-scroll'); if (el) el.scrollTop = el.scrollHeight; }); }
+function render() { const app = document.getElementById('app'); if (state.screen === 'setup') return renderSetup(app); return renderMain(app); }
 
 function renderSetup(app) {
   app.className = '';
   app.innerHTML = `
-    <div class="setup">
-      <div class="setup-card">
-        <div class="setup-logo">
-          <div style="font-size:2.2rem;margin-bottom:10px">🗣️⚡🤖</div>
-          <h1>Gibber<span>Link</span> Revisited</h1>
-          <p>Watch two AI agents evolve their own language — live</p>
-        </div>
-        <div class="field">
-          <label>Conversation Topic</label>
-          <textarea id="topic" placeholder="What should they discuss?">Whether AI can truly be conscious, or if it's all just sophisticated pattern matching</textarea>
-        </div>
-        <button class="launch-btn" onclick="startConversation()">Launch Agents →</button>
-        <p class="setup-note">Backend must be running: python server.py</p>
+    <div class="setup"><div class="setup-card">
+      <div class="setup-logo">
+        <div style="font-size:2.2rem;margin-bottom:10px">🗣️⚡🤖</div>
+        <h1>Gibber<span>Link</span> Revisited</h1>
+        <p>Watch two AI agents evolve their own language — live</p>
       </div>
-    </div>
-  `;
-
-  // Fetch config
-  fetch('/api/config').then(r => r.json()).then(cfg => {
-    state.config = cfg;
-  }).catch(() => {});
+      <div class="field"><label>Conversation Topic</label>
+        <textarea id="topic" placeholder="What should they discuss?">Whether AI can truly be conscious, or if it's all just sophisticated pattern matching</textarea>
+      </div>
+      <div class="field"><label>Turns <span id="turns-display" style="color:var(--orange)">20</span></label>
+        <input type="range" id="turns" min="6" max="40" value="20" step="2" oninput="document.getElementById('turns-display').textContent=this.value" style="accent-color:var(--orange);cursor:pointer">
+        <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:var(--text-dim);margin-top:4px"><span>6 (quick)</span><span>20 (default)</span><span>40 (deep)</span></div>
+      </div>
+      <button class="launch-btn" onclick="startConversation()">Launch Agents →</button>
+      <p class="setup-note">Backend must be running: python3 server.py</p>
+    </div></div>`;
+  fetch('/api/config').then(r=>r.json()).then(cfg=>{state.config=cfg;}).catch(()=>{});
 }
 
 function startConversation() {
   const topic = document.getElementById('topic').value.trim();
   if (!topic) return;
-  state.topic = topic;
-  state.messages = [];
-  state.dictionary = {};
-  state.phase = 'normal';
-  state.turn = 0;
-  connect(topic);
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const turns = parseInt(document.getElementById('turns').value) || 20;
+  state.topic = topic; state.totalTurns = turns; state.messages = []; state.dictionary = {}; state.phase = 'normal'; state.turn = 0;
+  connect(topic, turns);
 }
 
 function renderMain(app) {
   app.className = 'app';
   const cfg = state.config;
-
   app.innerHTML = `
-    <!-- Top bar -->
     <div class="top-bar">
-      <div class="logo">
-        <span class="logo-icon">🗣️⚡🤖</span>
-        <span class="logo-text">Gibber<span>Link</span> Revisited</span>
-      </div>
+      <div class="logo"><span class="logo-icon">🗣️⚡🤖</span><span class="logo-text">Gibber<span>Link</span> Revisited</span></div>
       <div class="phase-bar">${renderPhaseBar()}</div>
       <div class="controls">
-        <span class="turn-badge">Turn ${state.turn}/${20}</span>
-        ${state.screen === 'complete' ? '<button class="btn" onclick="resetApp()">← New Session</button>' : '<button class="btn btn-danger" onclick="stopConversation()">⏹ Stop</button>'}
+        <span class="turn-badge">Turn ${state.turn}/${state.totalTurns||20}</span>
+        ${state.screen==='complete'?'<button class="btn" onclick="resetApp()">← New Session</button>':'<button class="btn btn-danger" onclick="stopConversation()">⏹ Stop</button>'}
       </div>
     </div>
-
-    <!-- Main -->
     <div class="main">
-      <!-- Chat -->
-      <div class="chat-col">
-        <div class="chat-scroll" id="chat-scroll">
-          ${state.messages.map((m, i) => renderMsg(m, i)).join('')}
-          ${state.thinking ? renderThinking() : ''}
-          ${state.screen === 'complete' ? '<div style="text-align:center;padding:20px;color:var(--text-dim);font-size:0.85rem">✓ Conversation complete — ${state.messages.length} turns, ${Object.keys(state.dictionary).length} terms evolved</div>' : ''}
-        </div>
-      </div>
-
-      <!-- Side panel -->
+      <div class="chat-col"><div class="chat-scroll" id="chat-scroll">
+        ${state.messages.map((m,i)=>renderMsg(m,i)).join('')}
+        ${state.thinking?renderThinking():''}
+        ${state.screen==='complete'?`<div style="text-align:center;padding:20px;color:var(--text-dim);font-size:0.85rem">✓ Complete — ${state.messages.length} turns, ${Object.keys(state.dictionary).length} terms</div>`:''}
+      </div></div>
       <div class="side">
         <div class="side-section">
           <div class="side-title">Agents</div>
-          <div class="agent-info">
-            <div class="agent-dot" style="background:var(--orange)"></div>
-            <div><div class="agent-label">Agent A</div><div class="agent-model">${cfg.agent_a_model || '?'} <span style="opacity:0.5">via ${cfg.agent_a_provider || '?'}</span></div></div>
-          </div>
+          <div class="agent-info"><div class="agent-dot" style="background:var(--orange)"></div><div><div class="agent-label">Alex (Agent A)</div><div class="agent-model">${cfg.agent_a_model||'?'} <span style="opacity:0.5">via ${cfg.agent_a_provider||'?'}</span></div></div></div>
           <div class="vs">vs</div>
-          <div class="agent-info">
-            <div class="agent-dot" style="background:var(--blue)"></div>
-            <div><div class="agent-label">Agent B</div><div class="agent-model">${cfg.agent_b_model || '?'} <span style="opacity:0.5">via ${cfg.agent_b_provider || '?'}</span></div></div>
-          </div>
+          <div class="agent-info"><div class="agent-dot" style="background:var(--blue)"></div><div><div class="agent-label">Sam (Agent B)</div><div class="agent-model">${cfg.agent_b_model||'?'} <span style="opacity:0.5">via ${cfg.agent_b_provider||'?'}</span></div></div></div>
         </div>
-
-        <div class="side-section">
-          <div class="side-title">Topic</div>
-          <div class="topic-text">${state.topic || ''}</div>
-        </div>
-
-        <div class="side-section" style="flex-shrink:0">
-          <div class="side-title">📖 Dictionary (${Object.keys(state.dictionary).length})</div>
-        </div>
+        <div class="side-section"><div class="side-title">Topic</div><div class="topic-text">${state.topic||''}</div></div>
+        <div class="side-section" style="flex-shrink:0"><div class="side-title">📖 Dictionary (${Object.keys(state.dictionary).length})</div></div>
         <div class="dict-scroll">
-          ${Object.keys(state.dictionary).length === 0
-            ? '<div class="dict-empty">No terms yet...</div>'
-            : Object.entries(state.dictionary).map(([k,v]) =>
-                `<div class="dict-entry"><span class="dict-key">${esc(k)}</span><span class="dict-arrow">→</span><span class="dict-val">${esc(v)}</span></div>`
-              ).join('')
-          }
+          ${Object.keys(state.dictionary).length===0?'<div class="dict-empty">No terms yet...</div>':
+            Object.entries(state.dictionary).map(([k,v])=>`<div class="dict-entry"><span class="dict-key">${esc(k)}</span><span class="dict-arrow">→</span><span class="dict-val">${esc(v)}</span></div>`).join('')}
         </div>
-
         <div class="json-toggle">
-          <button class="btn" style="width:100%;font-size:0.72rem" onclick="toggleJson()">
-            ${state.showJson ? '▼ Hide' : '▶ Show'} JSON Protocol
-          </button>
-          ${state.showJson && state.lastProtocol ? `<pre class="json-pre">${syntaxHighlight(JSON.stringify(state.lastProtocol, null, 2))}</pre>` : ''}
+          <button class="btn" style="width:100%;font-size:0.72rem" onclick="toggleJson()">${state.showJson?'▼ Hide':'▶ Show'} JSON Protocol</button>
+          ${state.showJson&&state.lastProtocol?`<pre class="json-pre">${syntaxHighlight(JSON.stringify(state.lastProtocol,null,2))}</pre>`:''}
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function renderPhaseBar() {
   const ci = PHASES.indexOf(state.phase);
-  return PHASES.map((p, i) => {
-    const active = i === ci;
-    const done = i < ci;
-    const color = PHASE_COLORS[p];
-    return `
-      <div class="phase-step">
-        <div class="phase-dot ${active ? 'active' : ''} ${done ? 'done' : ''}" style="${active || done ? `background:${color};${active ? `box-shadow:0 0 10px ${color}` : ''}` : ''}"></div>
-        <span class="phase-label ${active ? 'active' : ''}">${PHASE_LABELS[p]}</span>
-      </div>
-      ${i < PHASES.length - 1 ? '<span class="phase-arrow">→</span>' : ''}
-    `;
+  return PHASES.map((p,i) => {
+    const active=i===ci, done=i<ci, color=PHASE_COLORS[p];
+    return `<div class="phase-step"><div class="phase-dot ${active?'active':''} ${done?'done':''}" style="${active||done?`background:${color};${active?`box-shadow:0 0 10px ${color}`:''}`:''}" ></div><span class="phase-label ${active?'active':''}">${PHASE_LABELS[p]}</span></div>${i<PHASES.length-1?'<span class="phase-arrow">→</span>':''}`;
   }).join('');
 }
 
 function renderMsg(m, idx) {
-  if (m.type === 'error') return `<div class="msg" style="align-self:center;border-color:rgba(248,113,113,0.3);border-left:3px solid var(--red)"><div style="color:var(--red);font-size:0.85rem">⚠️ ${esc(m.text)}</div></div>`;
-
-  const isA = m.agent === 'agent_a';
-  const cls = isA ? 'agent-a' : 'agent-b';
-  const emoji = isA ? '🔶' : '🔷';
-  const name = m.agent_name || (isA ? 'Agent A' : 'Agent B');
-  const phase = m.phase || 'normal';
-
-  return `
-    <div class="msg ${cls}">
-      <div class="msg-header">
-        <span class="msg-agent">${emoji} ${name}</span>
-        <span class="msg-phase ${phase}">${PHASE_LABELS[phase] || phase}</span>
-      </div>
-      <div class="msg-text">${esc(m.text)}</div>
-      ${m.translation ? `<div class="msg-translation">${esc(m.translation)}</div>` : ''}
-      ${m.audio ? `<button class="msg-audio-btn" onclick="replayAudio(${idx})">🔊 Replay audio</button>` : ''}
-    </div>
-  `;
+  if (m.type==='error') return `<div class="msg" style="align-self:center;border-color:rgba(248,113,113,0.3);border-left:3px solid var(--red)"><div style="color:var(--red);font-size:0.85rem">⚠️ ${esc(m.text)}</div></div>`;
+  const isA=m.agent==='agent_a', cls=isA?'agent-a':'agent-b';
+  const emoji=isA?'🔶':'🔷', name=m.agent_name||(isA?'Alex':'Sam'), phase=m.phase||'normal';
+  return `<div class="msg ${cls}">
+    <div class="msg-header"><span class="msg-agent">${emoji} ${name}</span><span class="msg-phase ${phase}">${PHASE_LABELS[phase]||phase}</span></div>
+    <div class="msg-text">${esc(m.text)}</div>
+    ${m.translation?`<div class="msg-translation">${esc(m.translation)}</div>`:''}
+    ${m.audio?`<button class="msg-audio-btn" onclick="replayAudio(${idx})">🔊 Replay</button>`:''}
+  </div>`;
 }
 
 function renderThinking() {
-  const isA = state.thinking === 'agent_a';
-  const name = isA ? 'Agent A' : 'Agent B';
+  const name = state.thinking==='agent_a'?'Alex':'Sam';
   return `<div class="thinking"><span class="thinking-dots"><span>●</span><span>●</span><span>●</span></span> ${name} is thinking...</div>`;
 }
 
-// ── Helpers ────────────────────────────
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function esc(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function syntaxHighlight(json) { return esc(json).replace(/"([^"]+)"(?=\s*:)/g,'<span class="jk">"$1"</span>').replace(/: "([^"]+)"/g,': <span class="js">"$1"</span>').replace(/: (\d+\.?\d*)/g,': <span class="jv">$1</span>'); }
+function toggleJson() { state.showJson=!state.showJson; render(); scrollChat(); }
+async function replayAudio(idx) { const m=state.messages[idx]; if(m?.audio){try{await playAudioB64(m.audio);}catch(e){console.warn(e);}} }
+function stopConversation() { if(state.ws){state.ws.close();state.ws=null;} state.screen='complete'; render(); }
+function resetApp() { state={screen:'setup',ws:null,config:state.config,messages:[],dictionary:{},phase:'normal',turn:0,totalTurns:20,thinking:null,lastProtocol:null,showJson:false}; render(); }
 
-function syntaxHighlight(json) {
-  return esc(json)
-    .replace(/"([^"]+)"(?=\s*:)/g, '<span class="jk">"$1"</span>')
-    .replace(/: "([^"]+)"/g, ': <span class="js">"$1"</span>')
-    .replace(/: (\d+\.?\d*)/g, ': <span class="jv">$1</span>');
-}
-
-function toggleJson() { state.showJson = !state.showJson; render(); scrollChat(); }
-
-async function replayAudio(idx) {
-  const m = state.messages[idx];
-  if (!m || !m.audio) return;
-  try {
-    if (audioCtx.state === 'suspended') await audioCtx.resume();
-    await playAudioB64(m.audio);
-  } catch (e) { console.warn(e); }
-}
-
-function stopConversation() {
-  if (state.ws) { state.ws.close(); state.ws = null; }
-  state.screen = 'complete';
-  render();
-}
-
-function resetApp() {
-  state = { screen: 'setup', ws: null, config: state.config, messages: [], dictionary: {}, phase: 'normal', turn: 0, thinking: null, lastProtocol: null, showJson: false };
-  render();
-}
-
-// ── Init ───────────────────────────────
 render();
 </script>
 </body>
