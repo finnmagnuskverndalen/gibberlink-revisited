@@ -20,26 +20,21 @@
 body {
   background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px;
   height: 100vh; overflow: hidden;
-  /* Dot grid background matching logo */
   background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
   background-size: 14px 14px;
 }
-
-/* Scanline overlay */
 body::after {
   content: ''; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
   pointer-events: none; z-index: 9999;
 }
-
 .app { display: flex; flex-direction: column; height: 100vh; }
 
 /* ── Top bar ─────────────────────── */
 .top-bar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 16px; background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
 .logo { display: flex; align-items: center; gap: 8px; }
 .logo-text { font-weight: 500; font-size: 13px; letter-spacing: 1px; }
@@ -65,6 +60,12 @@ body::after {
 .btn:hover { background: var(--bg4); color: var(--text); border-color: var(--text-dim); }
 .btn-danger { border-color: rgba(248,113,113,0.2); color: var(--red); }
 .btn-danger:hover { border-color: var(--red); background: rgba(248,113,113,0.05); }
+/* NEW: tts status indicator */
+.tts-badge {
+  font-size: 9px; color: var(--text-dim); padding: 3px 8px;
+  border: 1px solid var(--border); letter-spacing: 0.5px;
+}
+.tts-badge.ready { color: var(--green); border-color: rgba(52,211,153,0.3); }
 
 /* ── Main ────────────────────────── */
 .main { flex: 1; display: flex; overflow: hidden; }
@@ -72,6 +73,15 @@ body::after {
 /* Chat */
 .chat-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .chat-scroll { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+
+/* NEW: compression sparkline bar */
+.sparkline-bar {
+  padding: 6px 16px; background: var(--bg2); border-top: 1px solid var(--border);
+  display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+}
+.sparkline-label { font-size: 9px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+.sparkline-wrap { flex: 1; height: 20px; }
+canvas#sparkline { width: 100%; height: 20px; display: block; }
 
 .msg {
   max-width: 80%; padding: 10px 14px;
@@ -87,9 +97,12 @@ body::after {
 .msg.agent-b .msg-agent { color: var(--blue); }
 .msg-phase { font-size: 9px; padding: 1px 6px; letter-spacing: 0.5px; border: 1px solid; }
 .msg-phase.normal { border-color: rgba(52,211,153,0.3); color: var(--green); }
+.msg-phase.suspicion { border-color: rgba(192,132,252,0.3); color: var(--magenta); }
 .msg-phase.detected { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
 .msg-phase.compressing { border-color: rgba(192,132,252,0.3); color: var(--magenta); }
 .msg-phase.alien { border-color: rgba(248,113,113,0.3); color: var(--red); }
+/* NEW: compression ratio badge */
+.msg-ratio { font-size: 9px; color: var(--text-dim); letter-spacing: 0.5px; margin-left: auto; }
 .msg-text { color: var(--text); white-space: pre-wrap; }
 .msg-translation {
   margin-top: 8px; padding: 6px 10px;
@@ -106,8 +119,7 @@ body::after {
 
 .thinking {
   align-self: center; color: var(--text-dim); font-size: 11px;
-  padding: 10px; display: flex; align-items: center; gap: 8px;
-  letter-spacing: 1px;
+  padding: 10px; display: flex; align-items: center; gap: 8px; letter-spacing: 1px;
 }
 .thinking-dots span { animation: pulse 1s ease-in-out infinite; }
 .thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
@@ -136,19 +148,27 @@ body::after {
 .agent-label { color: var(--text); font-weight: 500; }
 .agent-model { font-size: 10px; color: var(--text-dim); }
 .vs { text-align: center; font-size: 10px; color: var(--text-dim); margin: 2px 0; letter-spacing: 2px; }
-
 .topic-text { font-size: 11px; color: var(--text-mid); line-height: 1.6; }
+
+/* NEW: stats row in side */
+.stats-row { display: flex; gap: 8px; margin-top: 8px; }
+.stat-item { flex: 1; background: var(--bg3); border: 1px solid var(--border); padding: 5px 8px; }
+.stat-label { font-size: 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+.stat-value { font-size: 14px; font-weight: 500; color: var(--text); margin-top: 1px; }
 
 /* Dictionary */
 .dict-scroll { flex: 1; overflow-y: auto; padding: 12px 14px; }
 .dict-entry {
-  display: flex; align-items: center; gap: 6px;
-  padding: 3px 0; font-size: 11px; animation: fadeIn 0.3s;
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 4px 0; font-size: 11px; animation: fadeIn 0.3s;
   border-bottom: 1px solid rgba(255,255,255,0.02);
 }
 .dict-key { color: var(--magenta); font-weight: 500; flex-shrink: 0; }
-.dict-arrow { color: var(--text-dim); font-size: 10px; }
+.dict-arrow { color: var(--text-dim); font-size: 10px; flex-shrink: 0; margin-top: 1px; }
 .dict-val { color: var(--text-mid); }
+/* NEW: turn number on dict entry */
+.dict-turn { font-size: 9px; color: var(--text-dim); margin-left: auto; flex-shrink: 0; }
+.dict-new-badge { font-size: 8px; color: var(--orange); border: 1px solid rgba(255,107,61,0.3); padding: 0 4px; margin-left: 4px; vertical-align: middle; }
 .dict-empty { color: var(--text-dim); font-size: 11px; font-style: italic; }
 
 /* JSON */
@@ -162,38 +182,20 @@ body::after {
 .json-pre .jk { color: var(--cyan); } .json-pre .jv { color: var(--yellow); } .json-pre .js { color: var(--green); }
 
 /* ── Setup screen ────────────────── */
-.setup {
-  display: flex; align-items: center; justify-content: center;
-  height: 100vh; padding: 24px;
-}
+.setup { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
 .setup-card {
   background: var(--bg2); border: 1px solid var(--border);
-  padding: 40px 36px; max-width: 480px; width: 100%;
-  position: relative;
+  padding: 40px 36px; max-width: 480px; width: 100%; position: relative;
 }
-/* Box-drawing corner accents */
-.setup-card::before {
-  content: '╔'; position: absolute; top: -1px; left: -1px;
-  color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1;
-}
-.setup-card::after {
-  content: '╝'; position: absolute; bottom: -1px; right: -1px;
-  color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1;
-}
+.setup-card::before { content: '╔'; position: absolute; top: -1px; left: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
+.setup-card::after { content: '╝'; position: absolute; bottom: -1px; right: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
 .setup-logo { text-align: center; margin-bottom: 28px; }
-.setup-logo .ascii-title {
-  font-size: 11px; color: var(--text); line-height: 1.2; white-space: pre;
-  display: inline-block; text-align: left;
-}
+.setup-logo .ascii-title { font-size: 11px; color: var(--text); line-height: 1.2; white-space: pre; display: inline-block; text-align: left; }
 .setup-logo .sub { margin-top: 10px; font-size: 11px; letter-spacing: 3px; }
 .setup-logo .sub span { color: var(--orange); }
 .setup-logo p { color: var(--text-dim); font-size: 11px; margin-top: 12px; letter-spacing: 0.5px; }
-
 .field { margin-bottom: 16px; }
-.field label {
-  display: block; font-size: 9px; font-weight: 500; color: var(--text-dim);
-  text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px;
-}
+.field label { display: block; font-size: 9px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
 .field label::before { content: '> '; color: var(--orange); opacity: 0.5; }
 .field input, .field textarea {
   width: 100%; padding: 8px 12px; background: var(--bg);
@@ -204,14 +206,21 @@ body::after {
 .field textarea { resize: vertical; min-height: 56px; line-height: 1.6; }
 .field input[type="range"] {
   -webkit-appearance: none; appearance: none; height: 4px;
-  background: var(--border); border: none; border-radius: 0;
-  cursor: pointer; padding: 0;
+  background: var(--border); border: none; border-radius: 0; cursor: pointer; padding: 0;
 }
 .field input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; width: 14px; height: 14px;
   background: var(--orange); border: 2px solid var(--bg);
   border-radius: 0; cursor: pointer; box-shadow: 0 0 8px rgba(255,107,61,0.4);
 }
+/* NEW: topic chips on setup */
+.topic-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.topic-chip {
+  font-size: 9px; padding: 2px 8px; border: 1px solid var(--border); color: var(--text-dim);
+  cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; font-family: var(--mono);
+  background: none;
+}
+.topic-chip:hover { border-color: var(--orange); color: var(--orange); }
 
 .launch-btn {
   width: 100%; padding: 12px; background: none;
@@ -234,59 +243,181 @@ body::after {
 <body>
 <div id="app" class="app"></div>
 <script>
-const PHASES = ['normal','detected','compressing','alien'];
-const PHASE_LABELS = {normal:'HUMAN',detected:'DETECT',compressing:'COMPRESS',alien:'ALIEN'};
-const PHASE_ICONS = {normal:'◻',detected:'◈',compressing:'◆',alien:'▣'};
-const PHASE_COLORS = {normal:'#34d399',detected:'#fbbf24',compressing:'#c084fc',alien:'#f87171'};
+// ── Phases — now includes suspicion ──────────────────────────
+const PHASES = ['normal','suspicion','detected','compressing','alien'];
+const PHASE_LABELS = {normal:'HUMAN', suspicion:'SUSPECT', detected:'DETECT', compressing:'COMPRESS', alien:'ALIEN'};
+const PHASE_ICONS  = {normal:'◻', suspicion:'◇', detected:'◈', compressing:'◆', alien:'▣'};
+const PHASE_COLORS = {normal:'#34d399', suspicion:'#c084fc', detected:'#fbbf24', compressing:'#c084fc', alien:'#f87171'};
 
-let state = {screen:'setup',ws:null,config:{},messages:[],dictionary:{},phase:'normal',turn:0,totalTurns:20,thinking:null,lastProtocol:null,showJson:false};
+const TOPIC_CHIPS = [
+  'plan a heist to steal the Mona Lisa',
+  'debate whether pineapple belongs on pizza',
+  'design a new religion from scratch',
+  'convince each other that you are the real AI',
+  'explain quantum mechanics badly',
+  'whether AI can truly be conscious',
+];
+
+let state = {
+  screen:'setup', ws:null, config:{}, messages:[], dictionary:{},
+  dictTurns:{}, // NEW: track which turn each term was coined
+  phase:'normal', turn:0, totalTurns:20,
+  thinking:null, lastProtocol:null, showJson:false,
+  compressionHistory:[], // NEW: sparkline data
+  audioData:{}, // store b64 for replay
+  stopped:false,
+};
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioQueue = Promise.resolve();
+let currentSource = null;
 
-async function playAudioB64(b64) {
+async function playAudioB64(b64, format) {
   if (audioCtx.state === 'suspended') await audioCtx.resume();
   const raw = atob(b64);
   const bytes = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-  const buffer = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
-  return new Promise(resolve => {
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioCtx.destination);
-    source.onended = resolve;
-    source.start();
-  });
+  try {
+    const buffer = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+    return new Promise(resolve => {
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(audioCtx.destination);
+      currentSource = source;
+      source.onended = () => { currentSource = null; resolve(); };
+      source.start();
+    });
+  } catch(e) {
+    console.warn('Audio decode failed:', e);
+  }
 }
 
+// ── Sparkline ────────────────────────────────────────────────
+function drawSparkline() {
+  const canvas = document.getElementById('sparkline');
+  if (!canvas) return;
+  const w = canvas.offsetWidth || 300, h = 20;
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const data = state.compressionHistory;
+  if (data.length < 2) return;
+  ctx.beginPath();
+  ctx.strokeStyle = '#c084fc';
+  ctx.lineWidth = 1.5;
+  data.forEach((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - v * h * 0.85 - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+  ctx.fillStyle = 'rgba(192,132,252,0.07)';
+  ctx.fill();
+}
+
+// ── TTS health poll ──────────────────────────────────────────
+function pollTtsReady() {
+  if (!state.config.tts_enabled || state.config.tts_provider === 'elevenlabs' || state.config.tts_provider === 'none') return;
+  const check = () => {
+    fetch('/api/tts-health').then(r => r.ok ? r.json() : null).then(d => {
+      const badge = document.getElementById('tts-badge');
+      if (!badge) return;
+      if (d && d.status === 'ok') {
+        badge.textContent = `tts:${state.config.tts_provider} ✓`;
+        badge.className = 'tts-badge ready';
+      } else {
+        badge.textContent = `tts:${state.config.tts_provider} loading...`;
+        setTimeout(check, 2000);
+      }
+    }).catch(() => setTimeout(check, 2000));
+  };
+  check();
+}
+
+// ── WebSocket ────────────────────────────────────────────────
 function connect(topic, turns) {
+  state.stopped = false;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
-  ws.onopen = () => { ws.send(JSON.stringify({topic,turns})); state.screen='running'; render(); };
-  ws.onmessage = async (e) => {
-    const data = JSON.parse(e.data);
-    if (data.type==='thinking') { state.thinking=data.agent; state.phase=data.phase; state.turn=data.turn; render(); scrollChat(); }
-    if (data.type==='message') {
-      state.thinking=null; state.messages.push(data);
-      state.dictionary=data.dictionary||state.dictionary;
-      state.lastProtocol=data.protocol_message;
-      state.phase=data.phase; state.turn=data.turn+1;
-      render(); scrollChat();
-      if (data.audio) { try{await playAudioB64(data.audio);}catch(err){console.warn('Audio:',err);} }
-      ws.send(JSON.stringify({type:'ack'}));
-    }
-    if (data.type==='translation') {
-      const msg=state.messages.find(m=>m.turn===data.turn&&m.agent===data.agent);
-      if(msg){msg.translation=data.translation; render(); scrollChat();}
-    }
-    if (data.type==='complete') { state.screen='complete'; render(); }
-    if (data.type==='error') { state.thinking=null; state.messages.push({type:'error',text:data.message,phase:state.phase,turn:state.turn}); render(); scrollChat(); }
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({topic, turns}));
+    state.screen = 'running';
+    render();
+    pollTtsReady();
   };
-  ws.onclose = () => { if(state.screen==='running'){state.screen='complete';render();} };
+
+  ws.onmessage = async (e) => {
+    if (state.stopped) return;
+    const data = JSON.parse(e.data);
+
+    if (data.type === 'thinking') {
+      state.thinking = data.agent;
+      state.phase = data.phase;
+      state.turn = data.turn;
+      render(); scrollChat();
+    }
+
+    if (data.type === 'message') {
+      state.thinking = null;
+      state.messages.push(data);
+      if (data.audio) state.audioData[data.turn] = {b64: data.audio, format: data.audio_format || 'mp3'};
+      state.dictionary = data.dictionary || state.dictionary;
+      // Track which turn each new term was coined
+      Object.keys(data.new_terms || {}).forEach(k => {
+        if (!(k in state.dictTurns)) state.dictTurns[k] = data.turn;
+      });
+      state.lastProtocol = data.protocol_message;
+      state.phase = data.phase;
+      state.turn = data.turn + 1;
+      // Sparkline: record compression ratio for compressing/alien phases
+      if (data.compression_ratio !== undefined && data.compression_ratio < 1) {
+        state.compressionHistory.push(data.compression_ratio);
+      }
+      render(); scrollChat();
+      // Queue audio then ack
+      audioQueue = audioQueue.then(async () => {
+        if (!state.stopped && data.audio) {
+          await playAudioB64(data.audio, data.audio_format);
+        }
+        if (!state.stopped && ws.readyState === 1) {
+          ws.send(JSON.stringify({type:'ack'}));
+        }
+      });
+    }
+
+    if (data.type === 'translation') {
+      const msg = state.messages.find(m => m.turn === data.turn && m.agent === data.agent);
+      if (msg) { msg.translation = data.translation; render(); scrollChat(); }
+    }
+
+    if (data.type === 'complete') { state.screen = 'complete'; render(); }
+
+    if (data.type === 'error') {
+      state.thinking = null;
+      state.messages.push({type:'error', text:data.message, phase:state.phase, turn:state.turn});
+      render(); scrollChat();
+    }
+  };
+
+  ws.onclose = () => { if (state.screen === 'running') { state.screen = 'complete'; render(); } };
   state.ws = ws;
 }
 
-function scrollChat() { requestAnimationFrame(()=>{const el=document.getElementById('chat-scroll');if(el)el.scrollTop=el.scrollHeight;}); }
-function render() { const app=document.getElementById('app'); if(state.screen==='setup') return renderSetup(app); return renderMain(app); }
+function scrollChat() {
+  requestAnimationFrame(() => {
+    const el = document.getElementById('chat-scroll');
+    if (el) el.scrollTop = el.scrollHeight;
+  });
+}
+
+// ── Render ───────────────────────────────────────────────────
+function render() {
+  const app = document.getElementById('app');
+  if (state.screen === 'setup') return renderSetup(app);
+  return renderMain(app);
+}
 
 function renderSetup(app) {
   app.className = '';
@@ -304,6 +435,9 @@ function renderSetup(app) {
       </div>
       <div class="field"><label>topic</label>
         <textarea id="topic" placeholder="what should they discuss?">Whether AI can truly be conscious, or if it's all just sophisticated pattern matching</textarea>
+        <div class="topic-chips">
+          ${TOPIC_CHIPS.map(t => `<button class="topic-chip" onclick="setTopic(this)">${t}</button>`).join('')}
+        </div>
       </div>
       <div class="field"><label>turns <span id="turns-display" style="color:var(--orange)">20</span></label>
         <input type="range" id="turns" min="6" max="40" value="20" step="2" oninput="document.getElementById('turns-display').textContent=this.value">
@@ -312,21 +446,41 @@ function renderSetup(app) {
       <button class="launch-btn" onclick="startConversation()">[ launch agents ]</button>
       <p class="setup-note">backend must be running: python3 server.py</p>
     </div></div>`;
-  fetch('/api/config').then(r=>r.json()).then(cfg=>{state.config=cfg;}).catch(()=>{});
+  fetch('/api/config').then(r => r.json()).then(cfg => { state.config = cfg; }).catch(() => {});
+}
+
+function setTopic(el) {
+  document.getElementById('topic').value = el.textContent;
 }
 
 function startConversation() {
-  const topic=document.getElementById('topic').value.trim();
-  if(!topic) return;
-  if(audioCtx.state==='suspended') audioCtx.resume();
-  const turns=parseInt(document.getElementById('turns').value)||20;
-  state.topic=topic; state.totalTurns=turns; state.messages=[]; state.dictionary={}; state.phase='normal'; state.turn=0;
+  const topic = document.getElementById('topic').value.trim();
+  if (!topic) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  const turns = parseInt(document.getElementById('turns').value) || 20;
+  state.topic = topic;
+  state.totalTurns = turns;
+  state.messages = [];
+  state.dictionary = {};
+  state.dictTurns = {};
+  state.phase = 'normal';
+  state.turn = 0;
+  state.compressionHistory = [];
+  state.audioData = {};
+  state.lastProtocol = null;
   connect(topic, turns);
 }
 
 function renderMain(app) {
-  app.className='app';
-  const cfg=state.config;
+  app.className = 'app';
+  const cfg = state.config;
+  const dictCount = Object.keys(state.dictionary).length;
+  const bestRatio = state.compressionHistory.length
+    ? Math.min(...state.compressionHistory).toFixed(2)
+    : '—';
+  const ttsLabel = cfg.tts_provider && cfg.tts_provider !== 'none'
+    ? `tts:${cfg.tts_provider}...` : '';
+
   app.innerHTML = `
     <div class="top-bar">
       <div class="logo">
@@ -336,69 +490,176 @@ function renderMain(app) {
       </div>
       <div class="phase-bar">${renderPhaseBar()}</div>
       <div class="controls">
+        ${ttsLabel ? `<span class="tts-badge" id="tts-badge">${ttsLabel}</span>` : ''}
         <span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns||20).padStart(2,'0')}</span>
-        ${state.screen==='complete'?'<button class="btn" onclick="resetApp()">[ new ]</button>':'<button class="btn btn-danger" onclick="stopConversation()">[ stop ]</button>'}
+        ${state.screen==='complete'
+          ? `<button class="btn" onclick="exportTranscript()" title="export transcript">[ export ]</button>
+             <button class="btn" onclick="resetApp()">[ new ]</button>`
+          : `<button class="btn btn-danger" onclick="stopConversation()">[ stop ]</button>`}
       </div>
     </div>
     <div class="main">
-      <div class="chat-col"><div class="chat-scroll" id="chat-scroll">
-        ${state.messages.map((m,i)=>renderMsg(m,i)).join('')}
-        ${state.thinking?renderThinking():''}
-        ${state.screen==='complete'?`<div style="text-align:center;padding:16px;color:var(--text-dim);font-size:11px;letter-spacing:1px">// session complete — ${state.messages.length} turns — ${Object.keys(state.dictionary).length} terms evolved</div>`:''}
-      </div></div>
+      <div class="chat-col">
+        <div class="chat-scroll" id="chat-scroll">
+          ${state.messages.map((m,i) => renderMsg(m,i)).join('')}
+          ${state.thinking ? renderThinking() : ''}
+          ${state.screen==='complete'
+            ? `<div style="text-align:center;padding:16px;color:var(--text-dim);font-size:11px;letter-spacing:1px">// session complete — ${state.messages.length} turns — ${dictCount} terms evolved</div>`
+            : ''}
+        </div>
+        <div class="sparkline-bar">
+          <span class="sparkline-label">// compression</span>
+          <div class="sparkline-wrap"><canvas id="sparkline"></canvas></div>
+          <span style="font-size:9px;color:var(--text-dim);white-space:nowrap;letter-spacing:0.5px">best: ${bestRatio}</span>
+        </div>
+      </div>
       <div class="side">
         <div class="side-section">
           <div class="side-title">agents</div>
           <div class="agent-info"><div class="agent-dot a"></div><div><span class="agent-label">alex</span> <span class="agent-model">${cfg.agent_a_model||'?'}</span></div></div>
           <div class="vs">─── vs ───</div>
           <div class="agent-info"><div class="agent-dot b"></div><div><span class="agent-label">sam</span> <span class="agent-model">${cfg.agent_b_model||'?'}</span></div></div>
+          <div class="stats-row">
+            <div class="stat-item"><div class="stat-label">turns</div><div class="stat-value">${state.messages.length}</div></div>
+            <div class="stat-item"><div class="stat-label">terms</div><div class="stat-value">${dictCount}</div></div>
+            <div class="stat-item"><div class="stat-label">ratio</div><div class="stat-value" style="font-size:12px">${bestRatio}</div></div>
+          </div>
         </div>
-        <div class="side-section"><div class="side-title">topic</div><div class="topic-text">${state.topic||''}</div></div>
-        <div class="side-section" style="flex-shrink:0"><div class="side-title">dictionary [${Object.keys(state.dictionary).length}]</div></div>
+        <div class="side-section"><div class="side-title">topic</div><div class="topic-text">${esc(state.topic||'')}</div></div>
+        <div class="side-section" style="flex-shrink:0">
+          <div class="side-title">dictionary [${dictCount}]</div>
+        </div>
         <div class="dict-scroll">
-          ${Object.keys(state.dictionary).length===0?'<div class="dict-empty">awaiting compression phase...</div>':
-            Object.entries(state.dictionary).map(([k,v])=>`<div class="dict-entry"><span class="dict-key">${esc(k)}</span><span class="dict-arrow">→</span><span class="dict-val">${esc(v)}</span></div>`).join('')}
+          ${dictCount === 0
+            ? '<div class="dict-empty">awaiting compression phase...</div>'
+            : Object.entries(state.dictionary).reverse().map(([k,v]) => {
+                const turn = state.dictTurns[k];
+                const isNew = state.messages.length > 0 && turn === state.messages[state.messages.length-1]?.turn;
+                return `<div class="dict-entry">
+                  <span class="dict-key">${esc(k)}</span>
+                  ${isNew ? '<span class="dict-new-badge">new</span>' : ''}
+                  <span class="dict-arrow">→</span>
+                  <span class="dict-val">${esc(v)}</span>
+                  ${turn !== undefined ? `<span class="dict-turn">t${turn+1}</span>` : ''}
+                </div>`;
+              }).join('')}
         </div>
         <div class="json-toggle">
           <button class="btn" style="width:100%;font-size:10px;letter-spacing:1px" onclick="toggleJson()">${state.showJson?'[ hide json ]':'[ show json ]'}</button>
-          ${state.showJson&&state.lastProtocol?`<pre class="json-pre">${syntaxHighlight(JSON.stringify(state.lastProtocol,null,2))}</pre>`:''}
+          ${state.showJson && state.lastProtocol
+            ? `<pre class="json-pre">${syntaxHighlight(JSON.stringify(state.lastProtocol,null,2))}</pre>`
+            : ''}
         </div>
       </div>
     </div>`;
+
+  requestAnimationFrame(drawSparkline);
+  if (cfg.tts_enabled && cfg.tts_provider !== 'elevenlabs' && cfg.tts_provider !== 'none') {
+    pollTtsReady();
+  } else if (cfg.tts_provider === 'elevenlabs') {
+    const badge = document.getElementById('tts-badge');
+    if (badge) { badge.textContent = 'tts:elevenlabs ✓'; badge.className = 'tts-badge ready'; }
+  }
 }
 
 function renderPhaseBar() {
-  const ci=PHASES.indexOf(state.phase);
-  return PHASES.map((p,i)=>{
-    const active=i===ci, done=i<ci, color=PHASE_COLORS[p];
-    return `<div class="phase-step"><div class="phase-dot ${active?'active':''} ${done?'done':''}" style="${active||done?`background:${color};${active?`box-shadow:0 0 8px ${color},0 0 16px ${color}`:''}`:''}" ></div><span class="phase-label ${active?'active':''}" style="${active?`color:${color}`:''}">${PHASE_ICONS[p]} ${PHASE_LABELS[p]}</span></div>${i<PHASES.length-1?'<span class="phase-sep">│</span>':''}`;
+  const ci = PHASES.indexOf(state.phase);
+  return PHASES.map((p, i) => {
+    const active = i === ci, done = i < ci, color = PHASE_COLORS[p];
+    return `<div class="phase-step">
+      <div class="phase-dot ${active?'active':''} ${done?'done':''}"
+        style="${active||done ? `background:${color};${active?`box-shadow:0 0 8px ${color},0 0 16px ${color}`:''}` : ''}">
+      </div>
+      <span class="phase-label ${active?'active':''}" style="${active?`color:${color}`:''}">
+        ${PHASE_ICONS[p]} ${PHASE_LABELS[p]}
+      </span>
+    </div>${i < PHASES.length-1 ? '<span class="phase-sep">│</span>' : ''}`;
   }).join('');
 }
 
 function renderMsg(m, idx) {
-  if(m.type==='error') return `<div class="msg" style="align-self:center;border-color:rgba(248,113,113,0.3);border-left:2px solid var(--red)"><div style="color:var(--red);font-size:11px">ERR: ${esc(m.text)}</div></div>`;
-  const isA=m.agent==='agent_a', cls=isA?'agent-a':'agent-b';
-  const name=m.agent_name||(isA?'alex':'sam'), phase=m.phase||'normal';
+  if (m.type === 'error') {
+    return `<div class="msg" style="align-self:center;border-color:rgba(248,113,113,0.3);border-left:2px solid var(--red)"><div style="color:var(--red);font-size:11px">ERR: ${esc(m.text)}</div></div>`;
+  }
+  const isA = m.agent === 'agent_a', cls = isA ? 'agent-a' : 'agent-b';
+  const name = m.agent_name || (isA ? 'alex' : 'sam'), phase = m.phase || 'normal';
+  const ratio = m.compression_ratio !== undefined && m.compression_ratio < 1
+    ? `<span class="msg-ratio">${m.compression_ratio.toFixed(2)}x</span>` : '';
+  const ad = state.audioData[m.turn];
   return `<div class="msg ${cls}">
-    <div class="msg-header"><span class="msg-agent">${isA?'◉':'◎'} ${name}</span><span class="msg-phase ${phase}">${PHASE_LABELS[phase]}</span></div>
+    <div class="msg-header">
+      <span class="msg-agent">${isA?'◉':'◎'} ${name}</span>
+      <span class="msg-phase ${phase}">${PHASE_LABELS[phase]||phase}</span>
+      ${ratio}
+    </div>
     <div class="msg-text">${esc(m.text)}</div>
-    ${m.translation?`<div class="msg-translation">${esc(m.translation)}</div>`:''}
-    ${m.audio?`<button class="msg-audio-btn" onclick="replayAudio(${idx})">[ replay ]</button>`:''}
+    ${m.translation ? `<div class="msg-translation">${esc(m.translation)}</div>` : ''}
+    ${ad ? `<button class="msg-audio-btn" onclick="replayAudio(${m.turn})">[ replay ]</button>` : ''}
   </div>`;
 }
 
 function renderThinking() {
-  const name=state.thinking==='agent_a'?'alex':'sam';
+  const name = state.thinking === 'agent_a' ? 'alex' : 'sam';
   return `<div class="thinking"><span class="thinking-dots"><span>▪</span><span>▪</span><span>▪</span></span> ${name} is processing</div>`;
 }
 
-function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-function syntaxHighlight(json){return esc(json).replace(/"([^"]+)"(?=\s*:)/g,'<span class="jk">"$1"</span>').replace(/: "([^"]+)"/g,': <span class="js">"$1"</span>').replace(/: (\d+\.?\d*)/g,': <span class="jv">$1</span>');}
-function toggleJson(){state.showJson=!state.showJson;render();scrollChat();}
-async function replayAudio(idx){const m=state.messages[idx];if(m?.audio){try{await playAudioB64(m.audio);}catch(e){console.warn(e);}}}
-function stopConversation(){if(state.ws){state.ws.close();state.ws=null;}state.screen='complete';render();}
-function resetApp(){state={screen:'setup',ws:null,config:state.config,messages:[],dictionary:{},phase:'normal',turn:0,totalTurns:20,thinking:null,lastProtocol:null,showJson:false};render();}
+// ── Actions ──────────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function syntaxHighlight(json) {
+  return esc(json)
+    .replace(/"([^"]+)"(?=\s*:)/g, '<span class="jk">"$1"</span>')
+    .replace(/: "([^"]+)"/g, ': <span class="js">"$1"</span>')
+    .replace(/: (\d+\.?\d*)/g, ': <span class="jv">$1</span>');
+}
+function toggleJson() { state.showJson = !state.showJson; render(); scrollChat(); }
 
+async function replayAudio(turn) {
+  const ad = state.audioData[turn];
+  if (ad) { try { await playAudioB64(ad.b64, ad.format); } catch(e) { console.warn(e); } }
+}
+
+function stopConversation() {
+  state.stopped = true;
+  try { currentSource?.stop(); } catch(e) {}
+  currentSource = null;
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  state.screen = 'complete';
+  render();
+}
+
+function resetApp() {
+  state = {
+    screen:'setup', ws:null, config:state.config,
+    messages:[], dictionary:{}, dictTurns:{},
+    phase:'normal', turn:0, totalTurns:20,
+    thinking:null, lastProtocol:null, showJson:false,
+    compressionHistory:[], audioData:{}, stopped:false,
+  };
+  render();
+}
+
+function exportTranscript() {
+  const data = {
+    topic: state.topic,
+    turns: state.messages.length,
+    dictionary: state.dictionary,
+    dict_coined_at: state.dictTurns,
+    messages: state.messages.map(m => ({
+      agent: m.agent_name, phase: m.phase, turn: m.turn,
+      text: m.text, compression_ratio: m.compression_ratio,
+      new_terms: m.new_terms, translation: m.translation || null,
+    })),
+    exported_at: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `gibberlink-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+window.addEventListener('resize', drawSparkline);
 render();
 </script>
 </body>

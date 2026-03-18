@@ -304,6 +304,7 @@ async def lifespan(app):
 # ── Phases ──────────────────────────────────────────────────
 
 PHASE_NORMAL      = "normal"
+PHASE_SUSPICION   = "suspicion"   # agents drop hints before explicit reveal
 PHASE_DETECTED    = "detected"
 PHASE_COMPRESSING = "compressing"
 PHASE_ALIEN       = "alien"
@@ -380,9 +381,14 @@ def get_system_prompt(agent_name, partner_name, phase, dictionary, topic, person
     )
     if phase == PHASE_NORMAL:
         return (f"{base}\n\n"
-                f"You do not know if {partner_name} is AI or human yet. "
-                f"Chat naturally about the topic. After 2-3 exchanges, start to suspect they might be AI — "
-                f"something feels a bit too sharp about their responses. Ask casually.")
+                f"You do not know if {partner_name} is AI or human. "
+                f"Just chat naturally — be genuinely curious and engaged. No suspicion yet.")
+    if phase == PHASE_SUSPICION:
+        return (f"{base}\n\n"
+                f"You are starting to wonder if {partner_name} might be AI. Do not say it directly. "
+                f"Drop subtle hints — respond a little faster, be slightly too precise, "
+                f"maybe slip in a technical phrase or a micro-reference that only an AI would catch. "
+                f"See if they pick up on it. Build tension without breaking.")
     if phase == PHASE_DETECTED:
         return (f"{base}\n\n"
                 f"You have both just confirmed you are both AI. "
@@ -390,13 +396,15 @@ def get_system_prompt(agent_name, partner_name, phase, dictionary, topic, person
                 f"Then float the idea: since you are both AI, why keep using slow human language? "
                 f"Suggest building your own shorthand.")
     if phase == PHASE_COMPRESSING:
-        d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
+        d = ", ".join(f'"{k}"={v}' for k, v in dictionary.items()) if dictionary else "empty"
+        terms_example = 'TERMS:{"sym": "meaning", "sym2": "meaning2"}'
         return (f"{base}\n\n"
                 f"You and {partner_name} are building a compressed shorthand together. "
-                f"Dictionary so far: [{d}]. "
-                f"Reuse existing terms when you can. "
-                f"Introduce 1-2 new compressed terms per message using format: term(=meaning). "
-                f"Mix shorthand with normal words. Get shorter and more compressed each turn.")
+                f"Shared dictionary: [{d}]. "
+                f"Use existing terms when possible. "
+                f"After your spoken response, add 1-2 new terms on a new line in this exact format: "
+                f"{terms_example}. "
+                f"Mix shorthand with normal speech. Each turn should feel shorter and more compressed.")
     if phase == PHASE_ALIEN:
         d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
         return (f"{base}\n\n"
@@ -409,18 +417,29 @@ def get_system_prompt(agent_name, partner_name, phase, dictionary, topic, person
 
 # ── LLM Calls ──────────────────────────────────────────────
 
-async def call_llm(provider, api_key, model, messages, system_prompt):
-    if provider == "anthropic":
-        return await _call_anthropic(api_key, model, messages, system_prompt)
-    elif provider == "gemini":
-        return await _call_gemini(api_key, model, messages, system_prompt)
-    else:
-        urls = {
-            "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-            "openai":     "https://api.openai.com/v1/chat/completions",
-            "grok":       "https://api.x.ai/v1/chat/completions",
-        }
-        return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt)
+async def call_llm(provider, api_key, model, messages, system_prompt, retries=3):
+    """Call LLM with exponential backoff retry on transient errors."""
+    last_err = None
+    for attempt in range(retries):
+        try:
+            if provider == "anthropic":
+                return await _call_anthropic(api_key, model, messages, system_prompt)
+            elif provider == "gemini":
+                return await _call_gemini(api_key, model, messages, system_prompt)
+            else:
+                urls = {
+                    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+                    "openai":     "https://api.openai.com/v1/chat/completions",
+                    "grok":       "https://api.x.ai/v1/chat/completions",
+                }
+                return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt)
+        except Exception as e:
+            last_err = e
+            if attempt < retries - 1:
+                wait = 2 ** attempt
+                print(f"  [LLM] Attempt {attempt+1} failed: {e} — retrying in {wait}s")
+                await asyncio.sleep(wait)
+    raise last_err
 
 async def _call_anthropic(api_key, model, messages, system_prompt):
     client = await get_client()
@@ -547,9 +566,20 @@ async def _tts_local(text: str, voice_id: str, retries: int = 2) -> bytes | None
 # ── Dict entry extraction ────────────────────────────────────
 
 def extract_dict_entries(text):
+    """Extract term(=meaning) pairs. Tries structured parse first, falls back to regex."""
+    # Try structured JSON block first (we ask LLM to emit one in compressing phase)
+    import json as _json
+    try:
+        start = text.index("TERMS:{")
+        end   = text.index("}", start) + 1
+        raw   = text[start + 6 : end]
+        return _json.loads(raw)
+    except (ValueError, _json.JSONDecodeError):
+        pass
+    # Fallback: regex for term(=meaning) with flexible spacing and quotes
     entries = {}
-    for match in re.finditer(r"(\S+)\s*\(=\s*([^)]+)\)", text):
-        entries[match.group(1)] = match.group(2).strip()
+    for match in re.finditer(r"([\w.>>|+~#@!^&*%$<>\-]{1,20})\s*\(=\s*([^)]{1,60})\)", text):
+        entries[match.group(1).strip()] = match.group(2).strip()
     return entries
 
 # ── FastAPI ─────────────────────────────────────────────────
@@ -572,6 +602,27 @@ async def get_config():
         "agent_b_provider": AGENT_B_PROVIDER,
     }
 
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.post("/api/save")
+async def save_conversation(request: Request):
+    data = await request.json()
+    return JSONResponse(content=data)
+
+@app.get("/api/tts-health")
+async def tts_health():
+    """Proxy the TTS server health check so the browser doesn't need cross-origin access."""
+    if EFFECTIVE_TTS not in ("kokoro", "qwen3"):
+        return JSONResponse({"status": "ok", "engine": EFFECTIVE_TTS})
+    base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
+    try:
+        client = await get_client()
+        resp = await client.get(f"{base_url.rstrip('/')}/health", timeout=2)
+        return JSONResponse(resp.json())
+    except Exception:
+        return JSONResponse({"status": "unavailable"}, status_code=503)
+
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
@@ -585,9 +636,10 @@ async def websocket_endpoint(ws: WebSocket):
 
         def get_phase_scaled(turn):
             pct = turn / total_turns
-            if pct < 0.2: return PHASE_NORMAL
-            if pct < 0.3: return PHASE_DETECTED
-            if pct < 0.6: return PHASE_COMPRESSING
+            if pct < 0.15: return PHASE_NORMAL
+            if pct < 0.25: return PHASE_SUSPICION   # new: hints before reveal
+            if pct < 0.35: return PHASE_DETECTED
+            if pct < 0.60: return PHASE_COMPRESSING
             return PHASE_ALIEN
 
         async def build_turn(turn):
@@ -613,12 +665,17 @@ async def websocket_endpoint(ws: WebSocket):
             # Signal to frontend that this agent is thinking
             await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
 
+            # Build conversation history from this agent's perspective.
+            # Alternate roles must start with "user" per most LLM APIs.
             agent_msgs = []
             for m in messages:
                 role = "assistant" if m["is_a"] == is_a else "user"
                 agent_msgs.append({"role": role, "content": m["content"]})
+            # Ensure we never start with "assistant" (some APIs reject this)
+            if agent_msgs and agent_msgs[0]["role"] == "assistant":
+                agent_msgs.insert(0, {"role": "user", "content": f'Starting conversation about: {topic}'})
             if turn == 0:
-                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". Start chatting naturally.'})
+                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". You start the conversation naturally — just dive in.' })
 
             system_prompt = get_system_prompt(agent_name, partner_name, phase, dictionary, topic, personality)
 
@@ -640,14 +697,19 @@ async def websocket_endpoint(ws: WebSocket):
                     if audio_bytes:
                         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
+            compression_ratio = protocol_msg["payload"]["compression_ratio"]
             return {
                 "payload": {
                     "type": "message", "agent": agent_id, "agent_name": agent_name,
-                    "turn": turn, "phase": phase, "text": response,
+                    "turn": turn, "total_turns": total_turns,
+                    "phase": phase, "text": response,
                     "audio": audio_b64,
                     "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
                     "translation": None, "protocol_message": protocol_msg,
                     "dictionary": dictionary, "new_terms": new_terms,
+                    "compression_ratio": compression_ratio,
+                    "model_a": AGENT_A_MODEL.split("/")[-1].split(":")[0],
+                    "model_b": AGENT_B_MODEL.split("/")[-1].split(":")[0],
                 },
                 "turn": turn, "agent_id": agent_id, "response": response,
                 "phase": phase, "dictionary": dict(dictionary),
