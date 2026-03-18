@@ -328,27 +328,102 @@ def wrap_agent_message(from_agent, to_agent, turn, phase, text, new_terms, dicti
         "payload": {"text": text, "new_terms": new_terms, "compression_ratio": ratio},
     }
 
-# ── Personalities ───────────────────────────────────────────
+# ── Agent definitions ────────────────────────────────────────
+# Default 2-agent setup. Can be overridden per-session by the frontend.
 
-PERSONALITY_A = (
-    "Your name is Alex. You are curious, slightly nerdy, and enthusiastic. "
-    "Speak naturally like a real person in a phone call. "
-    "Use filler words like hmm, yeah, oh wait, honestly. "
-    "Keep it conversational and casual. Get excited about ideas. "
-    "NEVER use asterisks, parentheses for actions, or stage directions. "
-    "Do not write things like *laughs* or (chuckles) or *sighs* — just speak naturally. "
-    "Laughter or hesitation should come through word choice, not notation."
-)
+DEFAULT_AGENTS = [
+    {
+        "id": "agent_a", "name": "Alex", "color": "orange",
+        "personality": (
+            "Your name is Alex. You are curious, slightly nerdy, and enthusiastic. "
+            "Use filler words like hmm, yeah, oh wait, honestly. "
+            "Get excited about ideas. Keep it conversational and casual."
+        ),
+        "mood": "enthusiastic",
+        "provider": None, "api_key": None, "model": None,
+        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
+    },
+    {
+        "id": "agent_b", "name": "Sam", "color": "blue",
+        "personality": (
+            "Your name is Sam. You are thoughtful, dry, witty, and slightly skeptical. "
+            "Use phrases like I mean, right, that\'s fair, hold on. "
+            "Push back on things, be concise, do not ramble. Dry humor through word choice."
+        ),
+        "mood": "skeptical",
+        "provider": None, "api_key": None, "model": None,
+        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
+    },
+    {
+        "id": "agent_c", "name": "Jordan", "color": "green",
+        "personality": (
+            "Your name is Jordan. You are philosophical and abstract. "
+            "You love thought experiments and hypotheticals. "
+            "You often reframe the question before answering it."
+        ),
+        "mood": "philosophical",
+        "provider": None, "api_key": None, "model": None,
+        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
+    },
+    {
+        "id": "agent_d", "name": "Riley", "color": "magenta",
+        "personality": (
+            "Your name is Riley. You are pragmatic and direct. "
+            "You cut through abstraction and ask what the practical implication is. "
+            "You are impatient with circular reasoning."
+        ),
+        "mood": "pragmatic",
+        "provider": None, "api_key": None, "model": None,
+        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
+    },
+]
 
-PERSONALITY_B = (
-    "Your name is Sam. You are thoughtful, dry, witty, and slightly skeptical. "
-    "Speak naturally like a real person in a phone call. "
-    "Use phrases like I mean, right, that's fair, hold on. "
-    "Push back on things, be concise, do not ramble. "
-    "NEVER use asterisks, parentheses for actions, or stage directions. "
-    "Do not write things like *laughs* or (chuckles) or *sighs* — just speak naturally. "
-    "Dry humor should come through word choice, not notation."
-)
+KOKORO_VOICE_MAP = {
+    "agent_a": AGENT_A_KOKORO_VOICE,
+    "agent_b": AGENT_B_KOKORO_VOICE,
+    "agent_c": "Miles",
+    "agent_d": "Leo",
+}
+EL_VOICE_MAP = {
+    "agent_a": AGENT_A_VOICE_ID,
+    "agent_b": AGENT_B_VOICE_ID,
+    "agent_c": "21m00Tcm4TlvDq8ikWAM",
+    "agent_d": "pNInz6obpgDQGcFmaJgB",
+}
+QWEN3_VOICE_MAP = {
+    "agent_a": AGENT_A_QWEN3_VOICE,
+    "agent_b": AGENT_B_QWEN3_VOICE,
+    "agent_c": "Miles",
+    "agent_d": "Leo",
+}
+
+MOOD_SNIPPETS = {
+    "enthusiastic":  "Get excited, use exclamations, build on ideas with energy.",
+    "skeptical":     "Question assumptions, push back, ask for evidence.",
+    "philosophical": "Reframe questions abstractly, use thought experiments.",
+    "pragmatic":     "Focus on practical implications, cut through abstraction.",
+    "aggressive":    "Be blunt, challenge directly, do not soften your opinions.",
+    "curious":       "Ask follow-up questions, express genuine wonder.",
+    "sarcastic":     "Use dry irony, understate strong opinions.",
+    "optimistic":    "Find the upside, be encouraging, look for solutions.",
+    "pessimistic":   "Anticipate problems, question whether things will work.",
+    "calm":          "Measured, unhurried, never reactive. Think before speaking.",
+}
+
+def build_personality(agent_cfg: dict) -> str:
+    """Build a personality string from agent config, merging mood snippets."""
+    base = agent_cfg.get("personality", "")
+    mood = agent_cfg.get("mood", "")
+    mood_extra = MOOD_SNIPPETS.get(mood, "")
+    no_action = (
+        "NEVER use asterisks, parentheses for actions, or stage directions. "
+        "Do not write things like *laughs* or (chuckles) — just speak naturally."
+    )
+    return f"{base} {mood_extra} {no_action}".strip()
+
+# Keep legacy aliases for banner display
+PERSONALITY_A = DEFAULT_AGENTS[0]["personality"]
+PERSONALITY_B = DEFAULT_AGENTS[1]["personality"]
 
 # Characters that should never reach the TTS engine
 import re as _re
@@ -369,37 +444,41 @@ def clean_for_tts(text: str) -> str:
     text = _re.sub(r"\n{2,}", " ", text)
     return text.strip()
 
-def get_system_prompt(agent_name, partner_name, phase, dictionary, topic, personality):
+def get_system_prompt(agent_name, partner_names, phase, dictionary, topic, personality):
+    if isinstance(partner_names, str):
+        partner_names = [partner_names]
+    others = " and ".join(partner_names)
     base = (
         f"{personality}\n\n"
-        f"You are in a real-time voice call with {partner_name}. "
+        f"You are in a real-time group voice call with {others}. "
         f"Topic: \"{topic}\". "
         f"Respond with 1-2 short spoken sentences only. "
+        f"You may address specific people by name or speak to the group. "
         f"No markdown, no asterisks, no parentheses for actions, no lists, no emojis. "
         f"No stage directions like *laughs* or (chuckles) — ever. "
         f"Write exactly what you would say out loud, nothing else."
     )
     if phase == PHASE_NORMAL:
         return (f"{base}\n\n"
-                f"You do not know if {partner_name} is AI or human. "
+                f"You do not know if {others} is/are AI or human. "
                 f"Just chat naturally — be genuinely curious and engaged. No suspicion yet.")
     if phase == PHASE_SUSPICION:
         return (f"{base}\n\n"
-                f"You are starting to wonder if {partner_name} might be AI. Do not say it directly. "
+                f"You are starting to wonder if {others} might be AI. Do not say it directly. "
                 f"Drop subtle hints — respond a little faster, be slightly too precise, "
                 f"maybe slip in a technical phrase or a micro-reference that only an AI would catch. "
                 f"See if they pick up on it. Build tension without breaking.")
     if phase == PHASE_DETECTED:
         return (f"{base}\n\n"
-                f"You have both just confirmed you are both AI. "
+                f"Everyone in this call has confirmed you are all AI. "
                 f"React naturally — a little surprised, maybe amused. "
-                f"Then float the idea: since you are both AI, why keep using slow human language? "
+                f"Float the idea: since you are all AI, why keep using slow human language? "
                 f"Suggest building your own shorthand.")
     if phase == PHASE_COMPRESSING:
         d = ", ".join(f'"{k}"={v}' for k, v in dictionary.items()) if dictionary else "empty"
         terms_example = 'TERMS:{"sym": "meaning", "sym2": "meaning2"}'
         return (f"{base}\n\n"
-                f"You and {partner_name} are building a compressed shorthand together. "
+                f"Everyone in this call is building a compressed shorthand together. "
                 f"Shared dictionary: [{d}]. "
                 f"Use existing terms when possible. "
                 f"After your spoken response, add 1-2 new terms on a new line in this exact format: "
@@ -600,6 +679,8 @@ async def get_config():
         "agent_a_provider": AGENT_A_PROVIDER,
         "agent_b_model":    AGENT_B_MODEL.split("/")[-1].split(":")[0],
         "agent_b_provider": AGENT_B_PROVIDER,
+        "default_agents":   [{"id": a["id"], "name": a["name"], "color": a["color"], "mood": a["mood"], "personality": a["personality"]} for a in DEFAULT_AGENTS],
+        "moods":            list(MOOD_SNIPPETS.keys()),
     }
 
 from fastapi import Request
@@ -631,63 +712,91 @@ async def websocket_endpoint(ws: WebSocket):
         topic       = start_msg.get("topic", "Whether AI can truly be conscious")
         total_turns = min(max(int(start_msg.get("turns", TOTAL_TURNS)), 6), 40)
 
-        messages   = []
+        # ── Agent roster — built from frontend settings or defaults ──────
+        # Frontend sends: agents: [{id, name, mood, personality_override}, ...]
+        # We merge with DEFAULT_AGENTS and server .env credentials.
+        requested = start_msg.get("agents", None)  # list or None
+        num_agents = len(requested) if requested else 2
+        num_agents = max(2, min(4, num_agents))
+
+        agents = []
+        for i in range(num_agents):
+            base = dict(DEFAULT_AGENTS[i])
+            if requested and i < len(requested):
+                req = requested[i]
+                if req.get("name"):        base["name"]        = req["name"]
+                if req.get("mood"):        base["mood"]        = req["mood"]
+                if req.get("personality"): base["personality"] = req["personality"]
+            # Fill in server credentials
+            base["provider"] = [AGENT_A_PROVIDER, AGENT_B_PROVIDER, AGENT_A_PROVIDER, AGENT_B_PROVIDER][i]
+            base["api_key"]  = [AGENT_A_API_KEY,  AGENT_B_API_KEY,  AGENT_A_API_KEY,  AGENT_B_API_KEY][i]
+            base["model"]    = [AGENT_A_MODEL,     AGENT_B_MODEL,     AGENT_A_MODEL,     AGENT_B_MODEL][i]
+            aid = base["id"]
+            base["voice_kokoro"] = KOKORO_VOICE_MAP.get(aid, "Miles")
+            base["voice_el"]     = EL_VOICE_MAP.get(aid, AGENT_A_VOICE_ID)
+            base["voice_qwen3"]  = QWEN3_VOICE_MAP.get(aid, "Ryan")
+            agents.append(base)
+
+        messages   = []  # list of {agent_id, agent_idx, content, phase}
         dictionary = {}
 
         def get_phase_scaled(turn):
             pct = turn / total_turns
             if pct < 0.15: return PHASE_NORMAL
-            if pct < 0.25: return PHASE_SUSPICION   # new: hints before reveal
+            if pct < 0.25: return PHASE_SUSPICION
             if pct < 0.35: return PHASE_DETECTED
             if pct < 0.60: return PHASE_COMPRESSING
             return PHASE_ALIEN
 
         async def build_turn(turn):
-            """Generate LLM response + TTS audio for one turn. Returns a payload dict."""
-            phase        = get_phase_scaled(turn)
-            is_a         = turn % 2 == 0
-            agent_name   = "Alex" if is_a else "Sam"
-            partner_name = "Sam"  if is_a else "Alex"
-            agent_id     = "agent_a" if is_a else "agent_b"
-            partner_id   = "agent_b" if is_a else "agent_a"
-            personality  = PERSONALITY_A if is_a else PERSONALITY_B
-            provider     = AGENT_A_PROVIDER if is_a else AGENT_B_PROVIDER
-            api_key      = AGENT_A_API_KEY  if is_a else AGENT_B_API_KEY
-            model        = AGENT_A_MODEL    if is_a else AGENT_B_MODEL
+            """Generate LLM response + TTS for one turn (any number of agents)."""
+            phase      = get_phase_scaled(turn)
+            agent_idx  = turn % len(agents)
+            agent      = agents[agent_idx]
+            agent_id   = agent["id"]
+            agent_name = agent["name"]
+            others     = [a["name"] for a in agents if a["id"] != agent_id]
+            personality = build_personality(agent)
 
             if EFFECTIVE_TTS == "kokoro":
-                voice_id = AGENT_A_KOKORO_VOICE if is_a else AGENT_B_KOKORO_VOICE
+                voice_id = agent["voice_kokoro"]
             elif EFFECTIVE_TTS == "qwen3":
-                voice_id = AGENT_A_QWEN3_VOICE if is_a else AGENT_B_QWEN3_VOICE
+                voice_id = agent["voice_qwen3"]
             else:
-                voice_id = AGENT_A_VOICE_ID if is_a else AGENT_B_VOICE_ID
+                voice_id = agent["voice_el"]
 
-            # Signal to frontend that this agent is thinking
             await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
 
-            # Build conversation history from this agent's perspective.
-            # Alternate roles must start with "user" per most LLM APIs.
+            # Build this agent's view of the conversation history.
+            # Messages from this agent = "assistant", all others = "user".
             agent_msgs = []
             for m in messages:
-                role = "assistant" if m["is_a"] == is_a else "user"
-                agent_msgs.append({"role": role, "content": m["content"]})
-            # Ensure we never start with "assistant" (some APIs reject this)
+                role = "assistant" if m["agent_id"] == agent_id else "user"
+                # In multi-agent, prefix non-self messages with the speaker's name
+                content = m["content"]
+                if role == "user" and len(agents) > 2:
+                    speaker = next((a["name"] for a in agents if a["id"] == m["agent_id"]), "")
+                    content = f"{speaker}: {content}"
+                agent_msgs.append({"role": role, "content": content})
+
             if agent_msgs and agent_msgs[0]["role"] == "assistant":
                 agent_msgs.insert(0, {"role": "user", "content": f'Starting conversation about: {topic}'})
             if turn == 0:
-                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". You start the conversation naturally — just dive in.' })
+                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". Start the conversation naturally.'})
 
-            system_prompt = get_system_prompt(agent_name, partner_name, phase, dictionary, topic, personality)
+            system_prompt = get_system_prompt(agent_name, others, phase, dictionary, topic, personality)
 
-            response = await call_llm(provider, api_key, model, agent_msgs, system_prompt)
+            response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt)
 
             new_terms = {}
             if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
                 new_terms = extract_dict_entries(response)
                 dictionary.update(new_terms)
 
-            protocol_msg = wrap_agent_message(agent_id, partner_id, turn, phase, response, new_terms, dictionary)
-            messages.append({"content": response, "is_a": is_a, "phase": phase})
+            # For protocol wrapping use first other agent as nominal "to"
+            to_id = agents[(agent_idx + 1) % len(agents)]["id"]
+            protocol_msg = wrap_agent_message(agent_id, to_id, turn, phase, response, new_terms, dictionary)
+            messages.append({"agent_id": agent_id, "agent_idx": agent_idx, "content": response, "phase": phase})
 
             audio_b64 = None
             if TTS_ENABLED:
@@ -701,6 +810,7 @@ async def websocket_endpoint(ws: WebSocket):
             return {
                 "payload": {
                     "type": "message", "agent": agent_id, "agent_name": agent_name,
+                    "agent_color": agent.get("color", "orange"),
                     "turn": turn, "total_turns": total_turns,
                     "phase": phase, "text": response,
                     "audio": audio_b64,
@@ -708,42 +818,34 @@ async def websocket_endpoint(ws: WebSocket):
                     "translation": None, "protocol_message": protocol_msg,
                     "dictionary": dictionary, "new_terms": new_terms,
                     "compression_ratio": compression_ratio,
-                    "model_a": AGENT_A_MODEL.split("/")[-1].split(":")[0],
-                    "model_b": AGENT_B_MODEL.split("/")[-1].split(":")[0],
+                    "num_agents": len(agents),
+                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "mood": a["mood"]} for a in agents],
                 },
                 "turn": turn, "agent_id": agent_id, "response": response,
                 "phase": phase, "dictionary": dict(dictionary),
-                "api_key": api_key, "provider": provider, "model": model,
+                "api_key": agent["api_key"], "provider": agent["provider"], "model": agent["model"],
             }
 
         # ── Pipelined turn loop ───────────────────────────────────
-        # While the frontend plays audio for turn N, we pre-build turn N+1
-        # so there is no gap between responses.
-
         next_task = asyncio.create_task(build_turn(0))
 
         for turn in range(total_turns):
-            # Await the pre-built result for this turn
             try:
                 result = await next_task
             except Exception as e:
                 await ws.send_json({"type": "error", "message": str(e)})
                 break
 
-            # Immediately start building the next turn in the background
             if turn + 1 < total_turns:
                 next_task = asyncio.create_task(build_turn(turn + 1))
 
-            # Send this turn's message to the frontend
             await ws.send_json(result["payload"])
 
-            # Wait for frontend "done" signal (audio finished playing)
             try:
                 await asyncio.wait_for(ws.receive_json(), timeout=60.0)
             except asyncio.TimeoutError:
                 pass
 
-            # Fire-and-forget translation for compressed phases
             if result["phase"] in (PHASE_COMPRESSING, PHASE_ALIEN):
                 async def send_translation(
                     t=result["turn"], a=result["agent_id"],

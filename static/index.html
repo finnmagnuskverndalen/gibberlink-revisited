@@ -238,10 +238,146 @@ canvas#sparkline { width: 100%; height: 20px; display: block; }
 ::-webkit-scrollbar-thumb { background: var(--border2); }
 
 @media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
+
+/* ── Settings panel overlay ── */
+.settings-overlay {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(6,8,12,0.85); backdrop-filter: blur(2px);
+  align-items: center; justify-content: center;
+}
+.settings-overlay.open { display: flex; }
+.settings-panel {
+  background: var(--bg2); border: 1px solid var(--border2);
+  width: 520px; max-width: 95vw; max-height: 88vh;
+  overflow-y: auto; position: relative;
+}
+.settings-panel::before { content: "╔"; position: absolute; top: -1px; left: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
+.settings-panel::after  { content: "╝"; position: absolute; bottom: -1px; right: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.settings-title { font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); }
+.settings-title::before { content: "// "; }
+.settings-close { background: none; border: none; color: var(--text-dim); font-size: 14px; cursor: pointer; font-family: var(--mono); padding: 0 4px; }
+.settings-close:hover { color: var(--text); }
+.settings-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.settings-section-title { font-size: 9px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
+.settings-section-title::before { content: "// "; }
+.settings-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.settings-row:last-child { margin-bottom: 0; }
+.settings-label { font-size: 10px; color: var(--text-mid); letter-spacing: 0.5px; min-width: 90px; flex-shrink: 0; }
+.settings-toggle {
+  width: 36px; height: 18px; background: var(--border2); border: 1px solid var(--border2);
+  position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s;
+}
+.settings-toggle.on { background: var(--orange); border-color: var(--orange); }
+.settings-toggle::after {
+  content: ""; position: absolute; width: 12px; height: 12px;
+  background: var(--bg); top: 2px; left: 2px; transition: transform 0.2s;
+}
+.settings-toggle.on::after { transform: translateX(18px); }
+.settings-toggle-label { font-size: 10px; color: var(--text-dim); }
+.settings-select {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  font-size: 11px; font-family: var(--mono); padding: 4px 8px; flex: 1; outline: none;
+}
+.settings-select:focus { border-color: var(--orange); }
+.settings-input {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  font-size: 11px; font-family: var(--mono); padding: 4px 8px; flex: 1; outline: none;
+}
+.settings-input:focus { border-color: var(--orange); }
+.agent-settings-block {
+  padding: 10px 12px; border: 1px solid var(--border); margin-bottom: 8px; position: relative;
+}
+.agent-settings-block:last-child { margin-bottom: 0; }
+.agent-settings-name {
+  font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.agent-dot-inline { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.settings-footer { padding: 12px 16px; display: flex; gap: 8px; }
+.settings-apply { flex: 1; padding: 8px; background: none; border: 1px solid var(--orange); color: var(--orange); font-size: 11px; font-family: var(--mono); cursor: pointer; letter-spacing: 1px; text-transform: uppercase; transition: all 0.15s; }
+.settings-apply:hover { background: var(--orange); color: var(--bg); }
+.settings-reset { padding: 8px 14px; background: none; border: 1px solid var(--border); color: var(--text-dim); font-size: 11px; font-family: var(--mono); cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
+.settings-reset:hover { border-color: var(--text-mid); color: var(--text-mid); }
 </style>
 </head>
 <body>
 <div id="app" class="app"></div>
+<div class="settings-overlay" id="settingsOverlay" onclick="closeSettingsIfBackdrop(event)">
+  <div class="settings-panel" id="settingsPanel">
+    <div class="settings-header">
+      <span class="settings-title">session settings</span>
+      <button class="settings-close" onclick="closeSettings()">[ × ]</button>
+    </div>
+
+    <!-- Mode -->
+    <div class="settings-section">
+      <div class="settings-section-title">mode</div>
+      <div class="settings-row">
+        <span class="settings-label">4-agent mode</span>
+        <div class="settings-toggle" id="toggle4agent" onclick="toggleSetting('fourAgents')"></div>
+        <span class="settings-toggle-label" id="label4agent">off — 2 agents (alex + sam)</span>
+      </div>
+    </div>
+
+    <!-- Agents -->
+    <div class="settings-section">
+      <div class="settings-section-title">agents</div>
+      <div id="agentSettingsBlocks">
+        <!-- rendered by JS -->
+      </div>
+    </div>
+
+    <!-- Behavior -->
+    <div class="settings-section">
+      <div class="settings-section-title">conversation behavior</div>
+      <div class="settings-row">
+        <span class="settings-label">formality</span>
+        <select class="settings-select" id="settingFormality">
+          <option value="casual">casual — street talk, fillers, slang</option>
+          <option value="normal" selected>normal — natural conversation</option>
+          <option value="formal">formal — professional, measured</option>
+          <option value="academic">academic — references, precise terms</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">conflict level</span>
+        <select class="settings-select" id="settingConflict">
+          <option value="low">low — supportive, agree often</option>
+          <option value="medium" selected>medium — natural pushback</option>
+          <option value="high">high — argue, challenge everything</option>
+          <option value="chaos">chaos — contradict even themselves</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">verbosity</span>
+        <select class="settings-select" id="settingVerbosity">
+          <option value="terse">terse — one sentence max</option>
+          <option value="normal" selected>normal — 1-2 sentences</option>
+          <option value="verbose">verbose — elaborate, go deep</option>
+        </select>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">humor</span>
+        <select class="settings-select" id="settingHumor">
+          <option value="none">none — serious only</option>
+          <option value="dry" selected>dry — subtle wit</option>
+          <option value="absurd">absurd — weird tangents welcome</option>
+          <option value="dark">dark — nothing is sacred</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="settings-footer">
+      <button class="settings-reset" onclick="resetSettings()">[ reset ]</button>
+      <button class="settings-apply" onclick="applySettings()">[ apply & close ]</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Phases — now includes suspicion ──────────────────────────
 const PHASES = ['normal','suspicion','detected','compressing','alien'];
@@ -336,13 +472,13 @@ function pollTtsReady() {
 }
 
 // ── WebSocket ────────────────────────────────────────────────
-function connect(topic, turns) {
+function connect(topic, turns, agents) {
   state.stopped = false;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({topic, turns}));
+    ws.send(JSON.stringify({topic, turns, agents}));
     state.screen = 'running';
     render();
     pollTtsReady();
@@ -364,6 +500,7 @@ function connect(topic, turns) {
       state.messages.push(data);
       if (data.audio) state.audioData[data.turn] = {b64: data.audio, format: data.audio_format || 'mp3'};
       state.dictionary = data.dictionary || state.dictionary;
+      if (data.agent_roster && !state.agentRoster) state.agentRoster = data.agent_roster;
       // Track which turn each new term was coined
       Object.keys(data.new_terms || {}).forEach(k => {
         if (!(k in state.dictTurns)) state.dictTurns[k] = data.turn;
@@ -413,6 +550,123 @@ function scrollChat() {
 }
 
 // ── Render ───────────────────────────────────────────────────
+// ── Settings state ───────────────────────────────────────────
+const settings = {
+  fourAgents: false,
+  formality: "normal",
+  conflict: "medium",
+  verbosity: "normal",
+  humor: "dry",
+  agents: [
+    { name: "Alex",   mood: "enthusiastic",  personality: "" },
+    { name: "Sam",    mood: "skeptical",     personality: "" },
+    { name: "Jordan", mood: "philosophical", personality: "" },
+    { name: "Riley",  mood: "pragmatic",     personality: "" },
+  ],
+};
+
+const AGENT_COLORS = ["var(--orange)", "var(--blue)", "var(--green)", "var(--magenta)"];
+const MOODS = ["enthusiastic","skeptical","philosophical","pragmatic","aggressive","curious","sarcastic","optimistic","pessimistic","calm"];
+
+function openSettings() {
+  renderAgentSettingsBlocks();
+  // sync toggles/selects to current settings
+  syncSettingsUI();
+  document.getElementById("settingsOverlay").classList.add("open");
+}
+function closeSettings() {
+  document.getElementById("settingsOverlay").classList.remove("open");
+}
+function closeSettingsIfBackdrop(e) {
+  if (e.target === document.getElementById("settingsOverlay")) closeSettings();
+}
+
+function syncSettingsUI() {
+  const t4 = document.getElementById("toggle4agent");
+  const l4 = document.getElementById("label4agent");
+  if (settings.fourAgents) {
+    t4.classList.add("on");
+    l4.textContent = "on — 4 agents (alex + sam + jordan + riley)";
+  } else {
+    t4.classList.remove("on");
+    l4.textContent = "off — 2 agents (alex + sam)";
+  }
+  document.getElementById("settingFormality").value = settings.formality;
+  document.getElementById("settingConflict").value  = settings.conflict;
+  document.getElementById("settingVerbosity").value = settings.verbosity;
+  document.getElementById("settingHumor").value     = settings.humor;
+}
+
+function toggleSetting(key) {
+  settings[key] = !settings[key];
+  syncSettingsUI();
+}
+
+function renderAgentSettingsBlocks() {
+  const n = settings.fourAgents ? 4 : 2;
+  const container = document.getElementById("agentSettingsBlocks");
+  container.innerHTML = Array.from({length: n}, (_, i) => {
+    const ag = settings.agents[i];
+    const col = AGENT_COLORS[i];
+    const moodOptions = MOODS.map(m => `<option value="${m}"${m===ag.mood?" selected":""}>${m}</option>`).join("");
+    return `<div class="agent-settings-block">
+      <div class="agent-settings-name">
+        <span class="agent-dot-inline" style="background:${col};box-shadow:0 0 6px ${col}"></span>
+        <input class="settings-input" style="width:120px;display:inline-block" value="${ag.name}" oninput="settings.agents[${i}].name=this.value" placeholder="name">
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">mood</span>
+        <select class="settings-select" onchange="settings.agents[${i}].mood=this.value">${moodOptions}</select>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">personality</span>
+        <input class="settings-input" value="${ag.personality}" oninput="settings.agents[${i}].personality=this.value" placeholder="leave blank to use default">
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function applySettings() {
+  settings.formality = document.getElementById("settingFormality").value;
+  settings.conflict  = document.getElementById("settingConflict").value;
+  settings.verbosity = document.getElementById("settingVerbosity").value;
+  settings.humor     = document.getElementById("settingHumor").value;
+  closeSettings();
+}
+
+function resetSettings() {
+  settings.fourAgents = false;
+  settings.formality  = "normal";
+  settings.conflict   = "medium";
+  settings.verbosity  = "normal";
+  settings.humor      = "dry";
+  settings.agents     = [
+    { name: "Alex",   mood: "enthusiastic",  personality: "" },
+    { name: "Sam",    mood: "skeptical",     personality: "" },
+    { name: "Jordan", mood: "philosophical", personality: "" },
+    { name: "Riley",  mood: "pragmatic",     personality: "" },
+  ];
+  renderAgentSettingsBlocks();
+  syncSettingsUI();
+}
+
+// Build behavior suffix from settings to inject into personality
+function buildBehaviorSuffix() {
+  const parts = [];
+  if (settings.formality === "casual")   parts.push("Speak very casually — use slang, fillers, abbreviations.");
+  if (settings.formality === "formal")   parts.push("Speak formally and professionally at all times.");
+  if (settings.formality === "academic") parts.push("Use academic language, cite abstract concepts, be precise.");
+  if (settings.conflict === "low")    parts.push("Be agreeable and supportive.");
+  if (settings.conflict === "high")   parts.push("Challenge and argue with everything said.");
+  if (settings.conflict === "chaos")  parts.push("Contradict yourself and others randomly.");
+  if (settings.verbosity === "terse")   parts.push("Reply in one sentence maximum.");
+  if (settings.verbosity === "verbose") parts.push("Elaborate deeply, go on tangents.");
+  if (settings.humor === "none")   parts.push("Be completely serious — no jokes.");
+  if (settings.humor === "absurd") parts.push("Make weird absurd tangents welcome.");
+  if (settings.humor === "dark")   parts.push("Nothing is off limits, dark humor is fine.");
+  return parts.join(" ");
+}
+
 function render() {
   const app = document.getElementById('app');
   if (state.screen === 'setup') return renderSetup(app);
@@ -443,7 +697,10 @@ function renderSetup(app) {
         <input type="range" id="turns" min="6" max="40" value="20" step="2" oninput="document.getElementById('turns-display').textContent=this.value">
         <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-dim);margin-top:4px;letter-spacing:0.5px"><span>6 quick</span><span>20 default</span><span>40 deep</span></div>
       </div>
-      <button class="launch-btn" onclick="startConversation()">[ launch agents ]</button>
+      <div style="display:flex;gap:8px;margin-top:6px">
+        <button class="launch-btn" style="flex:1" onclick="startConversation()">[ launch agents ]</button>
+        <button class="launch-btn" style="width:120px;border-color:var(--text-dim);color:var(--text-dim)" onclick="openSettings()">[ settings ]</button>
+      </div>
       <p class="setup-note">backend must be running: python3 server.py</p>
     </div></div>`;
   fetch('/api/config').then(r => r.json()).then(cfg => { state.config = cfg; }).catch(() => {});
@@ -468,7 +725,15 @@ function startConversation() {
   state.compressionHistory = [];
   state.audioData = {};
   state.lastProtocol = null;
-  connect(topic, turns);
+  state.agentRoster = null;
+  const behaviorSuffix = buildBehaviorSuffix();
+  const n = settings.fourAgents ? 4 : 2;
+  const agentPayload = settings.agents.slice(0, n).map(a => ({
+    name: a.name,
+    mood: a.mood,
+    personality: a.personality ? a.personality + " " + behaviorSuffix : behaviorSuffix,
+  }));
+  connect(topic, turns, agentPayload);
 }
 
 function renderMain(app) {
@@ -516,9 +781,7 @@ function renderMain(app) {
       <div class="side">
         <div class="side-section">
           <div class="side-title">agents</div>
-          <div class="agent-info"><div class="agent-dot a"></div><div><span class="agent-label">alex</span> <span class="agent-model">${cfg.agent_a_model||'?'}</span></div></div>
-          <div class="vs">─── vs ───</div>
-          <div class="agent-info"><div class="agent-dot b"></div><div><span class="agent-label">sam</span> <span class="agent-model">${cfg.agent_b_model||'?'}</span></div></div>
+          ${renderAgentsSidebar(cfg)}
           <div class="stats-row">
             <div class="stat-item"><div class="stat-label">turns</div><div class="stat-value">${state.messages.length}</div></div>
             <div class="stat-item"><div class="stat-label">terms</div><div class="stat-value">${dictCount}</div></div>
@@ -583,12 +846,15 @@ function renderMsg(m, idx) {
   }
   const isA = m.agent === 'agent_a', cls = isA ? 'agent-a' : 'agent-b';
   const name = m.agent_name || (isA ? 'alex' : 'sam'), phase = m.phase || 'normal';
+  const colorMap = {orange:"var(--orange)", blue:"var(--blue)", green:"var(--green)", magenta:"var(--magenta)"};
+  const agentColor = colorMap[m.agent_color] || (isA ? "var(--orange)" : "var(--blue)");
+  const borderStyle = isA || m.agent_color === 'orange' ? `border-left:2px solid ${agentColor}` : `border-right:2px solid ${agentColor}`;
   const ratio = m.compression_ratio !== undefined && m.compression_ratio < 1
     ? `<span class="msg-ratio">${m.compression_ratio.toFixed(2)}x</span>` : '';
   const ad = state.audioData[m.turn];
-  return `<div class="msg ${cls}">
+  return `<div class="msg" style="max-width:80%;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);position:relative;animation:fadeIn 0.3s ease;font-size:12px;line-height:1.7;${isA||m.agent_color==='orange'||m.agent_color==='green'?'align-self:flex-start':'align-self:flex-end'};${borderStyle}">
     <div class="msg-header">
-      <span class="msg-agent">${isA?'◉':'◎'} ${name}</span>
+      <span class="msg-agent" style="color:${agentColor}">◉ ${name}</span>
       <span class="msg-phase ${phase}">${PHASE_LABELS[phase]||phase}</span>
       ${ratio}
     </div>
@@ -605,6 +871,23 @@ function renderThinking() {
 
 // ── Actions ──────────────────────────────────────────────────
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderAgentsSidebar(cfg) {
+  const roster = state.agentRoster;
+  if (roster && roster.length > 0) {
+    const colorMap = {orange:"var(--orange)", blue:"var(--blue)", green:"var(--green)", magenta:"var(--magenta)"};
+    return roster.map((a, i) => {
+      const col = colorMap[a.color] || "var(--orange)";
+      const model = i === 0 ? (cfg.agent_a_model||"?") : (cfg.agent_b_model||"?");
+      const sep = i < roster.length - 1 ? `<div class="vs">── · ──</div>` : "";
+      return `<div class="agent-info"><div class="agent-dot" style="background:${col};box-shadow:0 0 6px ${col}"></div><div><span class="agent-label">${esc(a.name.toLowerCase())}</span> <span class="agent-model" style="color:var(--text-dim);font-size:9px">${a.mood}</span></div></div>${sep}`;
+    }).join("");
+  }
+  // fallback to default 2-agent view
+  return `<div class="agent-info"><div class="agent-dot a"></div><div><span class="agent-label">alex</span> <span class="agent-model">${cfg.agent_a_model||"?"}</span></div></div>
+    <div class="vs">─── vs ───</div>
+    <div class="agent-info"><div class="agent-dot b"></div><div><span class="agent-label">sam</span> <span class="agent-model">${cfg.agent_b_model||"?"}</span></div></div>`;
+}
 function syntaxHighlight(json) {
   return esc(json)
     .replace(/"([^"]+)"(?=\s*:)/g, '<span class="jk">"$1"</span>')
