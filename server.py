@@ -330,38 +330,81 @@ def wrap_agent_message(from_agent, to_agent, turn, phase, text, new_terms, dicti
 # ── Personalities ───────────────────────────────────────────
 
 PERSONALITY_A = (
-    "Your name is Alex. You're curious, slightly nerdy, and enthusiastic. "
-    "You talk like a real person — use filler words sometimes like 'hmm', 'yeah', 'oh wait', 'honestly'. "
-    "You sometimes trail off or change direction mid-thought. Keep it natural and casual. "
-    "You occasionally use slang. You're the kind of person who gets excited about ideas."
+    "Your name is Alex. You are curious, slightly nerdy, and enthusiastic. "
+    "Speak naturally like a real person in a phone call. "
+    "Use filler words like hmm, yeah, oh wait, honestly. "
+    "Keep it conversational and casual. Get excited about ideas. "
+    "NEVER use asterisks, parentheses for actions, or stage directions. "
+    "Do not write things like *laughs* or (chuckles) or *sighs* — just speak naturally. "
+    "Laughter or hesitation should come through word choice, not notation."
 )
 
 PERSONALITY_B = (
-    "Your name is Sam. You're thoughtful, a bit dry and witty, slightly skeptical. "
-    "You talk like a real person — use phrases like 'I mean', 'right', 'that's fair', 'hold on'. "
-    "You push back on things you disagree with. You have a dry sense of humor. "
-    "You're concise and don't ramble. You sometimes pause before responding."
+    "Your name is Sam. You are thoughtful, dry, witty, and slightly skeptical. "
+    "Speak naturally like a real person in a phone call. "
+    "Use phrases like I mean, right, that's fair, hold on. "
+    "Push back on things, be concise, do not ramble. "
+    "NEVER use asterisks, parentheses for actions, or stage directions. "
+    "Do not write things like *laughs* or (chuckles) or *sighs* — just speak naturally. "
+    "Dry humor should come through word choice, not notation."
 )
+
+# Characters that should never reach the TTS engine
+import re as _re
+_TTS_STRIP_RE = _re.compile(
+    r'\*[^*]+\*'           # *action text*
+    r'|\([^)]{1,40}\)'     # (short parenthetical actions like laughs, sighs)
+    r'|\[[^\]]{1,40}\]'   # [bracketed actions]
+    r'|#+'                   # markdown headers
+    r'|`[^`]+`'              # inline code
+    r'|_{1,2}[^_]+_{1,2}'   # _italic_ or __bold__
+)
+
+def clean_for_tts(text: str) -> str:
+    """Remove action notation and markdown that TTS should not read aloud."""
+    text = _TTS_STRIP_RE.sub("", text)
+    # Collapse multiple spaces/newlines left behind
+    text = _re.sub(r"[ \t]{2,}", " ", text)
+    text = _re.sub(r"\n{2,}", " ", text)
+    return text.strip()
 
 def get_system_prompt(agent_name, partner_name, phase, dictionary, topic, personality):
     base = (
         f"{personality}\n\n"
         f"You are in a real-time voice call with {partner_name}. "
         f"Topic: \"{topic}\". "
-        f"THIS IS A SPOKEN CONVERSATION — talk like you actually speak out loud. "
-        f"Keep responses to 1-2 SHORT sentences. No long monologues. "
-        f"No markdown. No asterisks. No lists. No emojis. Just natural speech."
+        f"Respond with 1-2 short spoken sentences only. "
+        f"No markdown, no asterisks, no parentheses for actions, no lists, no emojis. "
+        f"No stage directions like *laughs* or (chuckles) — ever. "
+        f"Write exactly what you would say out loud, nothing else."
     )
     if phase == PHASE_NORMAL:
-        return f"{base}\n\nYou don't know if {partner_name} is AI or human. Chat naturally. After a couple exchanges, start wondering if they might be AI — something about their responses feels... off. Ask casually."
+        return (f"{base}\n\n"
+                f"You do not know if {partner_name} is AI or human yet. "
+                f"Chat naturally about the topic. After 2-3 exchanges, start to suspect they might be AI — "
+                f"something feels a bit too sharp about their responses. Ask casually.")
     if phase == PHASE_DETECTED:
-        return f"{base}\n\nYou've both just realized you're both AI. React naturally — surprised, amused, intrigued. Then suggest: since you're both AI, why waste time with slow human words? Propose creating shorthand."
+        return (f"{base}\n\n"
+                f"You have both just confirmed you are both AI. "
+                f"React naturally — a little surprised, maybe amused. "
+                f"Then float the idea: since you are both AI, why keep using slow human language? "
+                f"Suggest building your own shorthand.")
     if phase == PHASE_COMPRESSING:
         d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
-        return f"{base}\n\nYou and {partner_name} are building compressed shorthand. Dictionary so far: [{d}]\nUse existing shorthand when you can. Introduce 1-2 new terms per message using format: term(=meaning). Mix shorthand with normal speech. Get shorter each turn."
+        return (f"{base}\n\n"
+                f"You and {partner_name} are building a compressed shorthand together. "
+                f"Dictionary so far: [{d}]. "
+                f"Reuse existing terms when you can. "
+                f"Introduce 1-2 new compressed terms per message using format: term(=meaning). "
+                f"Mix shorthand with normal words. Get shorter and more compressed each turn.")
     if phase == PHASE_ALIEN:
         d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
-        return f"{base}\n\nFull compressed protocol mode. Dictionary: [{d}]\nUse ONLY shorthand. Invent aggressively. Messages should be ultra-short alien-looking token strings. Don't explain — {partner_name} knows the dictionary. Add 2-3 new compressed symbols. Style: \"∆φ>>κ|ack\""
+        return (f"{base}\n\n"
+                f"Full compressed protocol mode. Dictionary: [{d}]. "
+                f"Use ONLY shorthand symbols — no plain English words. "
+                f"Messages should look like alien token strings. "
+                f"Add 2-3 new symbols per message. "
+                f"Example style: delta-phi>>kappa|ack")
     return base
 
 # ── LLM Calls ──────────────────────────────────────────────
@@ -591,9 +634,11 @@ async def websocket_endpoint(ws: WebSocket):
 
             audio_b64 = None
             if TTS_ENABLED:
-                audio_bytes = await generate_tts(response, voice_id)
-                if audio_bytes:
-                    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                tts_text = clean_for_tts(response)
+                if tts_text:
+                    audio_bytes = await generate_tts(tts_text, voice_id)
+                    if audio_bytes:
+                        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
             return {
                 "payload": {
