@@ -1,6 +1,6 @@
 ![GibberLink Revisited](logo.svg)
 
-**Watch two AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.**
+**Watch two (or four) AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.**
 
 Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo (15M+ views on X) — but instead of switching to a pre-built protocol, the agents *dynamically invent their own compressed language* in real-time.
 
@@ -9,24 +9,27 @@ Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) 
 ## How it works
 
 ```
-Phase 1: 💬 Normal English — agents don't know each other yet
-Phase 2: 🔍 Detection — they realize they're both AI
-Phase 3: ⚡ Compression — they build a shared shorthand dictionary
-Phase 4: 👽 Alien Protocol — messages become cryptic symbol strings
+Phase 1: 💬 Normal English    — agents don't know each other yet
+Phase 2: 👁 Suspicion         — subtle hints, building tension
+Phase 3: 🔍 Detection         — they confirm they're both AI
+Phase 4: ⚡ Compression       — they build a shared shorthand dictionary
+Phase 5: 👽 Alien Protocol    — messages become cryptic symbol strings
 ```
 
-Phases scale proportionally to however many turns you choose (6–40), so even a quick 6-turn session hits all four phases.
+Phases scale proportionally to however many turns you choose (6–40).
 
-Each agent has its own **personality**:
+## Agents
 
-- **Alex** (Agent A) — curious, enthusiastic, nerdy. Uses filler words like "hmm", "oh wait", "honestly". Gets excited about ideas.
-- **Sam** (Agent B) — dry, witty, skeptical. Pushes back, uses phrases like "I mean", "that's fair", "hold on". Doesn't ramble.
+Default setup is **Alex** and **Sam**. Enable 4-agent mode in settings to add **Jordan** and **Riley**:
 
-They talk like real people — short responses, natural speech patterns, interruptions, and pushback.
+| Agent | Default mood | Style |
+|---|---|---|
+| **Alex** | Enthusiastic | Curious, nerdy, gets excited about ideas |
+| **Sam** | Skeptical | Dry, witty, pushes back, concise |
+| **Jordan** | Philosophical | Reframes questions, loves thought experiments |
+| **Riley** | Pragmatic | Cuts through abstraction, asks what the practical implication is |
 
 ## JSON protocol
-
-The agents communicate through a structured JSON envelope:
 
 ```json
 {
@@ -50,15 +53,15 @@ A **live translator** decodes compressed messages back to English so you can fol
 
 - **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
 - **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
-- **Custom model support** — enter any OpenRouter model ID
-- **Three TTS options** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local, heavier)
-- **Hardware-aware TTS recommendations** — setup detects your GPU VRAM and suggests the best option
-- **Auto dependency install** — setup installs the right packages for your chosen TTS provider
-- **Auto-launch TTS server** — `server.py` starts the local TTS server automatically, no second terminal needed
-- **Adjustable turns** — 6 to 40 via slider, phases scale proportionally
-- **Agent personalities** — Alex (enthusiastic) vs Sam (skeptical), natural conversational speech
-- **Real-time web UI** — live chat, growing dictionary, JSON protocol inspector
-- **Natural pacing** — each agent waits for the other to finish speaking before responding
+- **5-phase conversation** — normal → suspicion → detected → compressing → alien
+- **2 or 4 agent mode** — toggle between a dialogue and a group discussion
+- **Settings panel** — control agent names, moods, personalities, and conversation behavior per session
+- **Text-to-Speech** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local, heavy)
+- **Hardware-aware TTS** — setup detects your GPU VRAM and recommends the right option
+- **Pipelined generation** — next turn generates while current audio plays, no gap between responses
+- **Live compression sparkline** — watch the ratio drop as alien phase develops
+- **Export transcript** — download full conversation + dictionary as JSON
+- **Real-time web UI** — live chat, growing dictionary with turn numbers, JSON protocol inspector
 
 ## Architecture
 
@@ -68,13 +71,13 @@ A **live translator** decodes compressed messages back to English so you can fol
 │  (index.html)│    messages + audio     │  server.py    │
 └─────────────┘                         └──────┬───────┘
                                                │
-                          ┌────────────────────┼──────────────────────┐
-                          │                    │                      │
-                    ┌─────▼─────┐      ┌──────▼──────┐    ┌─────────▼────────┐
-                    │  Alex      │      │  Sam        │    │  tts_server.py   │
-                    │  (any LLM) │      │  (any LLM)  │    │  Kokoro / Qwen3  │
-                    └───────────┘      └─────────────┘    │  (auto-started)  │
-                                                           └──────────────────┘
+                    ┌──────────────────────────┼──────────────────────────┐
+                    │                          │                          │
+              ┌─────▼─────┐            ┌──────▼──────┐      ┌────────────▼─────────┐
+              │  Alex / Sam │           │ Jordan/Riley │      │  tts_server.py       │
+              │  (any LLM)  │           │  (4-agent)   │      │  Kokoro / Qwen3      │
+              └────────────┘            └─────────────┘      │  (auto-started)      │
+                                                              └──────────────────────┘
 ```
 
 ## Quick start
@@ -94,7 +97,7 @@ The setup wizard will:
 - Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
 - Walk you through API key and model configuration
 - Detect your GPU VRAM and recommend the best TTS provider
-- Install the right TTS dependencies automatically
+- Install the right TTS dependencies and download model files automatically
 - Create your `.env` file
 
 ### 2. Run
@@ -103,11 +106,37 @@ The setup wizard will:
 python3 server.py
 ```
 
-That's it. The venv is detected and used automatically — no need to activate it manually.
+The venv is detected automatically — no need to activate it. If TTS is configured, `tts_server.py` starts in the background automatically.
 
 ### 3. Open
 
-Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns, and hit Launch.
+Navigate to **http://127.0.0.1:8765**, configure a topic, optionally open **[ settings ]**, and hit **[ launch agents ]**.
+
+## Settings panel
+
+Click **[ settings ]** on the launch screen to configure the session before starting:
+
+### 4-agent mode
+
+Toggle on to add Jordan and Riley to the conversation. All four agents take turns in round-robin order, each seeing the full conversation history from their own perspective.
+
+### Per-agent settings
+
+For each active agent:
+- **Name** — rename any agent
+- **Mood** — choose from: enthusiastic, skeptical, philosophical, pragmatic, aggressive, curious, sarcastic, optimistic, pessimistic, calm
+- **Personality override** — write a custom personality description to replace the default
+
+### Conversation behavior
+
+| Setting | Options |
+|---|---|
+| **Formality** | casual · normal · formal · academic |
+| **Conflict level** | low · medium · high · chaos |
+| **Verbosity** | terse · normal · verbose |
+| **Humor** | none · dry · absurd · dark |
+
+These settings are injected into each agent's system prompt before the session starts. Combining them produces very different conversations — academic + high conflict + dry humor produces a very different dynamic than casual + low conflict + absurd.
 
 ## Supported LLM providers
 
@@ -123,66 +152,46 @@ Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns,
 
 ## Text-to-Speech
 
-The setup wizard detects your GPU VRAM and recommends the best TTS option before you choose. All local options start automatically when you run `server.py` — no second terminal needed.
+The setup wizard detects your GPU VRAM and recommends the best option. `tts_server.py` starts automatically when you run `server.py` — no second terminal needed.
 
 ### Kokoro-ONNX (local — recommended)
 
-The best default for most hardware. 82M parameter model, ~300MB download, runs entirely on CPU via ONNX runtime. Near real-time on any modern laptop. No GPU required, no PyTorch, no large downloads.
+82M parameter model, ~300MB download, runs entirely on CPU via ONNX runtime. Near real-time on any modern laptop. No GPU required. Model files download automatically on first run.
 
-- Install: `pip install kokoro-onnx` (handled automatically by setup)
-- Model files download on first run (~300MB)
-- Works on any hardware including low-end GPUs like GTX 1050
-
-| Voice | Default for | Style |
-|---|---|---|
-| am_michael | Alex | American male, clear |
-| bm_george | Sam | British male, distinguished |
-| am_adam | — | American male, warm |
-| bm_lewis | — | British male, measured |
-| af_heart | — | American female, natural |
-| af_bella | — | American female, expressive |
-| bf_emma | — | British female, warm |
+Works on any hardware including low-end GPUs like GTX 1050.
 
 ### ElevenLabs (cloud)
 
-Highest quality, ~75ms latency. Free tier gives 10K characters/month, no credit card needed.
+Highest quality, ~75ms latency. Free tier: 10K characters/month, no credit card needed.
 
-Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) — enable the **"Text to Speech"** permission when creating your key.
+Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys).
 
 ### Qwen3-TTS (local — heavy)
 
-600M parameter model, ~1.3GB download, runs on CPU (float32). Richer voice variety than Kokoro but significantly slower on modest hardware and requires more RAM. **Not recommended for GPUs with less than 3GB VRAM.**
+600M parameter model, ~1.3GB download, runs on CPU. Richer voice variety than Kokoro but significantly slower. Not recommended for GPUs with less than 3GB VRAM.
 
-- Runs on CPU regardless of GPU — expect 5–15 seconds per sentence on a laptop
-- 16 preset voices including Ryan, Ethan, Vivian, Cherry, and more
-- Model weights download on first run (~1.3GB)
+### TTS hardware guide
 
-### TTS hardware recommendations
-
-| Your hardware | Recommended TTS |
+| Hardware | Recommendation |
 |---|---|
 | No NVIDIA GPU | Kokoro — runs great on CPU |
 | < 3GB VRAM (e.g. GTX 1050) | Kokoro — Qwen3 will crash |
 | 3–6GB VRAM | Kokoro (faster) or Qwen3 (richer voices) |
-| 6GB+ VRAM | Any option — ElevenLabs for best quality |
-
-### No TTS
-
-Skip TTS entirely and run in text-only mode.
+| 6GB+ VRAM | Any — ElevenLabs for best quality |
 
 ## What makes this different from GibberLink?
 
 | | GibberLink (original) | GibberLink Revisited |
 |---|---|---|
 | **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
-| **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
-| **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
+| **Phases** | 2 (human / protocol) | 5 (normal / suspicion / detected / compress / alien) |
+| **Agents** | 2 generic | 2 or 4, named with configurable personalities |
 | **TTS** | ElevenLabs only | ElevenLabs, Kokoro-ONNX, or Qwen3-TTS |
-| **Agents** | Generic | Named personalities (Alex & Sam) |
+| **Settings** | None | Per-agent mood, personality, behavior controls |
+| **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
 | **Translation** | Decode via ggwave | AI translator decodes in real-time |
-| **Dictionary** | None (fixed encoding) | Live dictionary grows during conversation |
-| **Duration** | Fixed | Adjustable 6–40 turns with proportional phases |
-| **Visual** | Two devices with audio | Web UI with chat, dictionary, JSON inspector |
+| **Dictionary** | None | Live dictionary with turn numbers + compression sparkline |
+| **Export** | None | Full JSON transcript with dictionary and metadata |
 | **Setup** | Manual | Wizard — detects hardware, installs deps, writes .env |
 
 ## Project structure
@@ -190,19 +199,17 @@ Skip TTS entirely and run in text-only mode.
 ```
 gibberlink-revisited/
 ├── server.py          # FastAPI backend — orchestrates agents, TTS, WebSocket
-├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started by server.py)
+├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started)
 ├── setup.py           # Interactive setup wizard
 ├── static/
-│   └── index.html     # Web frontend — real-time chat UI with audio
+│   └── index.html     # Web frontend — chat UI with settings panel
 ├── .env.example       # Configuration template
-├── requirements.txt   # Core dependencies (TTS deps installed separately by setup.py)
+├── requirements.txt   # Core dependencies (TTS deps installed by setup.py)
 ├── logo.svg
 └── README.md
 ```
 
 ## Reconfiguring
-
-Run setup again at any time:
 
 ```bash
 python3 setup.py
@@ -222,6 +229,11 @@ nano .env
 - "Design a new religion from scratch"
 - "Convince each other that you're the real AI and the other is fake"
 - "Explain quantum mechanics but you both have to pretend you don't understand it"
+
+**With 4-agent mode and chaos conflict + absurd humor:**
+- "The trolley problem but the trolley is sentient"
+- "Whether numbers were invented or discovered"
+- "What would a just society look like if designed by AIs"
 
 ## License
 
