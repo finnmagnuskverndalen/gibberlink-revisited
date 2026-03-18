@@ -10,12 +10,30 @@ Endpoint:
     GET /voices                                         → {"voices":[...]}
 """
 
-import argparse
-import io
 import os
 import sys
+
+# ── Venv bootstrap ───────────────────────────────────────────
+# Re-exec inside .venv if running under system Python.
+def _reexec_in_venv():
+    _here = os.path.dirname(os.path.abspath(__file__))
+    _venv_py = os.path.join(
+        _here, ".venv",
+        "Scripts" if sys.platform == "win32" else "bin",
+        "python.exe" if sys.platform == "win32" else "python",
+    )
+    in_venv = (
+        hasattr(sys, "real_prefix")
+        or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
+    )
+    if not in_venv and os.path.exists(_venv_py) and sys.executable != _venv_py:
+        os.execv(_venv_py, [_venv_py] + sys.argv)
+
+_reexec_in_venv()
+
+import argparse
+import io
 import numpy as np
-from scipy.io import wavfile
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -77,11 +95,32 @@ except ImportError:
 app = FastAPI(title=f"GibberLink TTS — {ENGINE}")
 
 # ── Engine: Kokoro-ONNX ───────────────────────────────────────
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_KOKORO_ONNX   = os.path.join(_HERE, "kokoro-v1.0.onnx")
+_KOKORO_VOICES = os.path.join(_HERE, "voices-v1.0.bin")
+_KOKORO_BASE_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+
+def _ensure_kokoro_models():
+    import urllib.request
+    for filename, path in [("kokoro-v1.0.onnx", _KOKORO_ONNX), ("voices-v1.0.bin", _KOKORO_VOICES)]:
+        if os.path.exists(path):
+            continue
+        url = f"{_KOKORO_BASE_URL}/{filename}"
+        print(f"  Downloading {filename} (~300MB total, please wait)...")
+        try:
+            urllib.request.urlretrieve(url, path)
+            print(f"  ✓ {filename} saved")
+        except Exception as e:
+            print(f"  ✗ Download failed: {e}")
+            print(f"    Run manually: wget {url} -P {_HERE}")
+            sys.exit(1)
+
 if ENGINE == "kokoro":
     from kokoro_onnx import Kokoro
 
     print(f"\n  Loading Kokoro-ONNX (~300MB download on first run)...")
-    _kokoro = Kokoro("kokoro-v1.0.onnx", "voices-v1.0.bin")
+    _ensure_kokoro_models()
+    _kokoro = Kokoro(_KOKORO_ONNX, _KOKORO_VOICES)
     print("  ✓ Kokoro ready\n")
 
     VOICES = [
@@ -125,6 +164,7 @@ else:
 
 # ── Shared audio helper ───────────────────────────────────────
 def _to_wav_bytes(samples: np.ndarray, sr: int) -> bytes:
+    from scipy.io import wavfile  # lazy import — only needed at call time
     buf = io.BytesIO()
     audio_int16 = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
     wavfile.write(buf, sr, audio_int16)

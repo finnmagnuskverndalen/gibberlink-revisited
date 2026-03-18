@@ -30,6 +30,27 @@ def _reexec_in_venv():
         sys.exit(1)
 
 _reexec_in_venv()
+
+def _free_port(port: int):
+    """Kill any process already bound to the given port so we can start cleanly."""
+    import signal
+    try:
+        # lsof is available on Linux/macOS; -t gives only the PID
+        out = subprocess.check_output(
+            ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
+        ).strip()
+        for pid_str in out.splitlines():
+            pid = int(pid_str)
+            if pid == os.getpid():
+                continue
+            try:
+                os.kill(pid, signal.SIGTERM)
+                print(f"  ⚠ Killed stale process on port {port} (PID {pid})")
+            except ProcessLookupError:
+                pass
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass  # lsof not found or port is free — nothing to do
+
 import json
 import asyncio
 import base64
@@ -639,4 +660,5 @@ if __name__ == "__main__":
     c.print(f"  Open [bold cyan]http://{HOST}:{PORT}[/bold cyan] in your browser")
     c.print()
 
+    _free_port(PORT)
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

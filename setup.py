@@ -124,6 +124,41 @@ def install_base_deps():
     print(green("  ✓ Core dependencies installed"))
 
 
+KOKORO_BASE_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+KOKORO_MODEL_FILES = ["kokoro-v1.0.onnx", "voices-v1.0.bin"]
+
+def download_kokoro_models():
+    """Download Kokoro model files into the project directory if missing."""
+    import urllib.request
+    here = os.path.dirname(os.path.abspath(__file__))
+    all_present = all(os.path.exists(os.path.join(here, f)) for f in KOKORO_MODEL_FILES)
+    if all_present:
+        print(dim("  ✓ Kokoro model files already present"))
+        return
+
+    print(bold("\n📥 Downloading Kokoro model files (~300MB total)..."))
+    for filename in KOKORO_MODEL_FILES:
+        dest = os.path.join(here, filename)
+        if os.path.exists(dest):
+            print(dim(f"  ✓ {filename} already exists"))
+            continue
+        url = f"{KOKORO_BASE_URL}/{filename}"
+        print(f"  Downloading {filename}...", end=" ", flush=True)
+        try:
+            def _progress(block, block_size, total):
+                if total > 0:
+                    pct = min(100, block * block_size * 100 // total)
+                    print(f"\r  Downloading {filename}... {pct}%", end="", flush=True)
+            urllib.request.urlretrieve(url, dest, reporthook=_progress)
+            size_mb = os.path.getsize(dest) / 1024 / 1024
+            print(green(f"\r  ✓ {filename} ({size_mb:.0f} MB)"))
+        except Exception as e:
+            print(red(f"\n  ✗ Failed: {e}"))
+            print(dim(f"    Run manually: wget {url}"))
+            sys.exit(1)
+    print(green("  ✓ Kokoro model files ready"))
+
+
 def install_kokoro_deps():
     """Install Kokoro-ONNX dependencies (only when TTS_PROVIDER=kokoro)."""
     print(bold("\n📦 Installing Kokoro-TTS dependencies..."))
@@ -144,8 +179,8 @@ def install_kokoro_deps():
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
 
-    print(green("  ✓ Kokoro dependencies installed"))
-    print(dim("  Note: model files (~300MB) download on first server start.\n"))
+    print(green("  ✓ Kokoro pip packages installed"))
+    download_kokoro_models()
 
 
 def install_qwen3_deps():
