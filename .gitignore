@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+gibberlink_log_*.json
+.DS_Store
+*.egg-info/
+dist/
+build/
