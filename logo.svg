@@ -1,0 +1,32 @@
+<svg width="100%" viewBox="0 0 680 230" xmlns="http://www.w3.org/2000/svg">
+
+<!-- Subtle dot grid -->
+<g opacity="0.035" style="fill:rgb(0, 0, 0);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.035;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto">
+<pattern id="dg" x="0" y="0" width="14" height="14" patternUnits="userSpaceOnUse">
+<circle cx="7" cy="7" r="0.5" fill="var(--p)"/>
+</pattern>
+<rect width="680" height="220" fill="url(#dg)" style="stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:&quot;Anthropic Sans&quot;, -apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, sans-serif;font-size:16px;font-weight:400;text-anchor:start;dominant-baseline:auto"/>
+</g>
+
+<g style="font-family:var(--font-mono);font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" fill="var(--p)">
+
+<!-- Top border -->
+<text x="120" y="34" opacity="0.1" style="font-size:12px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.1;font-family:ui-monospace, monospace;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">╔════════════════════════════════════════════════════════╗</text>
+
+<!-- ASCII art title -->
+<text x="148" y="64" style="font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve"> ██████╗ ██╗██████╗ ██████╗ ███████╗██████╗</text>
+<text x="148" y="80" style="font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve">██╔════╝ ██║██╔══██╗██╔══██╗██╔════╝██╔══██╗</text>
+<text x="148" y="96" style="font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve">██║  ███╗██║██████╔╝██████╔╝█████╗  ██████╔╝</text>
+<text x="148" y="112" style="font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve">██║   ██║██║██╔══██╗██╔══██╗██╔══╝  ██╔══██╗</text>
+<text x="148" y="128" style="font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve">╚██████╔╝██║██████╔╝██████╔╝███████╗██║  ██║</text>
+<text x="148" y="144" style="font-size:13px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:13px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve"> ╚═════╝ ╚═╝╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</text>
+
+<!-- LINK + REVISITED -->
+<text x="170" y="172" fill="#ff6b3d" style="font-size:16px;font-weight:500;letter-spacing:6px;fill:rgb(255, 107, 61);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:16px;font-weight:500;text-anchor:start;dominant-baseline:auto" xml:space="preserve">  L I N K</text>
+<text x="360" y="172" fill="var(--s)" style="font-size:14px;letter-spacing:4px;fill:rgb(194, 192, 182);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:1;font-family:ui-monospace, monospace;font-size:14px;font-weight:400;text-anchor:start;dominant-baseline:auto" xml:space="preserve">REVISITED</text>
+
+<!-- Bottom border -->
+<text x="120" y="200" opacity="0.1" style="font-size:12px;fill:rgb(250, 249, 245);stroke:none;color:rgb(251, 251, 254);stroke-width:1px;stroke-linecap:butt;stroke-linejoin:miter;opacity:0.1;font-family:ui-monospace, monospace;font-size:12px;font-weight:400;text-anchor:start;dominant-baseline:auto">╚════════════════════════════════════════════════════════╝</text>
+
+</g>
+</svg>
