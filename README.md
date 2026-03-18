@@ -1,24 +1,26 @@
-# 🗣️⚡🤖 GibberLink Revisited
+<p align="center">
+  <img src="logo.svg" alt="GibberLink Revisited" width="680">
+</p>
 
-**Watch two AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.**
+<p align="center">
+  <strong>Watch two AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.</strong>
+</p>
 
-Inspired by the viral [GibberLink demo](https://github.com/PennyroyalTea/gibberlink) from the ElevenLabs Hackathon (Feb 2025), where two AI agents switched from English to machine beeps mid-conversation — racking up 15M+ views on X.
+<p align="center">
+  Inspired by the viral <a href="https://github.com/PennyroyalTea/gibberlink">GibberLink</a> demo (15M+ views on X) — but instead of switching to a pre-built protocol, the agents <em>dynamically invent their own compressed language</em> in real-time.
+</p>
 
-**GibberLink Revisited** takes a different approach: instead of switching to a pre-built sound protocol, the agents *dynamically invent their own compressed language* over the course of a conversation. You watch it happen in real-time through a web UI with live audio playback.
+---
 
-https://github.com/user-attachments/assets/placeholder-demo.mp4
-
-## How It Works
-
+## How it works
 ```
-Turn 1-4:  💬 Normal English — agents don't know each other yet
-Turn 5-6:  🔍 Detection — they realize they're both AI
-Turn 7-12: ⚡ Compression — they build a shared shorthand dictionary
+Turn 1-4:   💬 Normal English — agents don't know each other yet
+Turn 5-6:   🔍 Detection — they realize they're both AI
+Turn 7-12:  ⚡ Compression — they build a shared shorthand dictionary
 Turn 13-20: 👽 Alien Protocol — messages become cryptic symbol strings
 ```
 
 The agents communicate through a **JSON protocol** — each message is wrapped in a structured envelope:
-
 ```json
 {
   "protocol": "gibberlink-revisited",
@@ -38,7 +40,6 @@ The agents communicate through a **JSON protocol** — each message is wrapped i
 A **live translator** decodes compressed messages back to English so you can follow along.
 
 ## Architecture
-
 ```
 ┌─────────────┐     WebSocket/JSON      ┌──────────────┐
 │   Browser    │◄──────────────────────►│  FastAPI      │
@@ -48,112 +49,101 @@ A **live translator** decodes compressed messages back to English so you can fol
                           ┌────────────────────┼────────────────────┐
                           │                    │                    │
                     ┌─────▼─────┐      ┌──────▼──────┐    ┌───────▼───────┐
-                    │ Claude API │      │ OpenRouter  │    │  ElevenLabs   │
-                    │ (Agent A)  │      │ (Agent B)   │    │  TTS Stream   │
+                    │  Agent A   │      │  Agent B    │    │  ElevenLabs   │
+                    │ (any LLM)  │      │ (any LLM)   │    │  TTS Stream   │
                     └───────────┘      └─────────────┘    └───────────────┘
 ```
 
-## Quick Start
+## Quick start
 
 ### 1. Clone & setup
-
 ```bash
-git clone https://github.com/yourusername/gibberlink-revisited.git
+git clone https://github.com/finnmagnuskverndalen/gibberlink-revisited.git
 cd gibberlink-revisited
-python setup.py
+python3 setup.py
 ```
 
 The setup wizard will:
 - Install Python dependencies
-- Walk you through API key configuration
-- Let you choose Agent B's model and TTS voices
+- Fetch **live models** from OpenRouter (top 10 free + top 10 cheapest)
+- Walk you through API key and model configuration
+- Optionally configure ElevenLabs TTS voices
 - Create your `.env` file
 
 ### 2. Run
-
 ```bash
-python server.py
+python3 server.py
 ```
 
 ### 3. Open
 
-Navigate to **http://127.0.0.1:8765** in your browser, pick a topic, and hit Launch.
+Navigate to **http://127.0.0.1:8765**, pick a topic, and hit Launch.
 
-## Manual Setup
+## Supported providers
 
-If you prefer to configure manually:
+| Provider | Setup | Free models? |
+|----------|-------|-------------|
+| **OpenRouter** | [openrouter.ai/keys](https://openrouter.ai/keys) | Yes — Llama, Gemini, DeepSeek, Qwen, Mistral and more |
+| **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Yes — Gemini 2.0/2.5 Flash |
+| **Anthropic** | [console.anthropic.com](https://console.anthropic.com/) | $5 free credit |
+| **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | No |
+| **xAI Grok** | [console.x.ai](https://console.x.ai/) | Free credits on signup |
 
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your API keys
-python server.py
-```
+> **Cheapest way to run:** Use OpenRouter for both agents with two different free models. Total cost: $0.
 
-## API Keys You'll Need
+The setup wizard fetches available models live from the OpenRouter API, so you always see what's currently working. You can also enter any custom model ID.
 
-| Service | Purpose | Get Key | Free Tier |
-|---------|---------|---------|-----------|
-| **Anthropic** | Agent A (Claude) | [console.anthropic.com](https://console.anthropic.com/) | $5 free credit |
-| **OpenRouter** | Agent B (any model) | [openrouter.ai/keys](https://openrouter.ai/keys) | Free models available |
-| **ElevenLabs** | Text-to-Speech | [elevenlabs.io](https://elevenlabs.io/app/settings/api-keys) | 10K chars/month free |
+## TTS (optional)
 
-> **TTS is optional** — if you skip the ElevenLabs key, everything works in text-only mode.
+ElevenLabs provides text-to-speech with ~75ms latency. The free tier gives you 10K characters/month (no credit card needed) — enough for several demo runs.
 
-## Configuration
+Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys).
 
-All config is in `.env`:
+If you skip the ElevenLabs key during setup, everything works in text-only mode.
 
-```bash
-# LLM Providers
-ANTHROPIC_API_KEY=sk-ant-...
-OPENROUTER_API_KEY=sk-or-v1-...
-OPENROUTER_MODEL=deepseek/deepseek-chat-v3-0324:free
+## What makes this different from GibberLink?
 
-# TTS (optional)
-ELEVENLABS_API_KEY=...
-AGENT_A_VOICE_ID=21m00Tcm4TlvDq8ikWAM   # Rachel
-AGENT_B_VOICE_ID=pNInz6obpgDQGcFmaJgB   # Adam
-ELEVENLABS_MODEL=eleven_flash_v2_5        # ~75ms latency
-
-# Server
-HOST=127.0.0.1
-PORT=8765
-```
-
-### Free model options for Agent B
-
-| Model | ID |
-|-------|----|
-| DeepSeek V3 | `deepseek/deepseek-chat-v3-0324:free` |
-| Llama 4 Maverick | `meta-llama/llama-4-maverick:free` |
-| Qwen 2.5 72B | `qwen/qwen-2.5-72b-instruct:free` |
-| Mistral Small 3.1 | `mistralai/mistral-small-3.1-24b-instruct:free` |
-
-## What Makes This Different from GibberLink?
-
-| | GibberLink (Original) | GibberLink Revisited |
+| | GibberLink (original) | GibberLink Revisited |
 |---|---|---|
 | **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
 | **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
-| **Models** | ElevenLabs Conversational AI | Any LLM (Claude, DeepSeek, Llama...) |
+| **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
 | **Translation** | Decode via ggwave | AI translator decodes in real-time |
 | **Dictionary** | None (fixed encoding) | Live dictionary grows during conversation |
 | **Visual** | Two devices with audio | Web UI with chat, dictionary, JSON inspector |
 
-## Project Structure
-
+## Project structure
 ```
 gibberlink-revisited/
 ├── server.py          # FastAPI backend — orchestrates agents, TTS, WebSocket
-├── setup.py           # Interactive setup wizard
+├── setup.py           # Interactive setup wizard (fetches live models)
 ├── static/
 │   └── index.html     # Web frontend — real-time chat UI with audio
 ├── .env.example       # Configuration template
-├── .gitignore
 ├── requirements.txt
+├── logo.svg
 └── README.md
 ```
+
+## Reconfiguring
+
+Run setup again at any time:
+```bash
+python3 setup.py
+```
+
+Or edit `.env` directly:
+```bash
+nano .env
+```
+
+## Fun topics to try
+
+- "Whether AI can truly be conscious, or if it's all just pattern matching"
+- "Plan a heist to steal the Mona Lisa"
+- "Debate whether pineapple belongs on pizza"
+- "Design a new religion from scratch"
+- "Convince each other that you're the real AI and the other is fake"
 
 ## License
 
@@ -162,4 +152,4 @@ MIT
 ## Credits
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
-- Built with [Claude](https://claude.ai) (Anthropic), [OpenRouter](https://openrouter.ai), and [ElevenLabs](https://elevenlabs.io)
+- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), and whatever LLMs you choose
