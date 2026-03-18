@@ -240,7 +240,8 @@ def _start_tts_server():
     threading.Thread(target=_pipe_output, daemon=True).start()
 
     # Poll /health — but bail early if the process already exited
-    health_url = f"{QWEN3_TTS_URL.rstrip('/')}/health"
+    base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
+    health_url = f"{base_url.rstrip('/')}/health"
     for _ in range(180):  # 3 min — model download can be slow
         # Process died before becoming ready
         if _tts_proc.poll() is not None:
@@ -248,7 +249,7 @@ def _start_tts_server():
             return False
         try:
             urllib.request.urlopen(health_url, timeout=1)
-            print("  [TTS] Qwen3-TTS server ready ✓")
+            print(f"  [TTS] {EFFECTIVE_TTS} server ready ✓")
             return True
         except Exception:
             time.sleep(1)
@@ -263,7 +264,7 @@ _tts_ready = False
 async def lifespan(app):
     global _tts_ready
 
-    if EFFECTIVE_TTS == "qwen3":
+    if EFFECTIVE_TTS in ("kokoro", "qwen3"):
         # Launch TTS server in a background thread so the web server starts
         # immediately and the browser can connect while the model loads.
         import threading
