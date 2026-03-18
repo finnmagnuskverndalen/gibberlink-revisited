@@ -14,13 +14,23 @@
 
 ## How it works
 ```
-Turn 1-4:   💬 Normal English — agents don't know each other yet
-Turn 5-6:   🔍 Detection — they realize they're both AI
-Turn 7-12:  ⚡ Compression — they build a shared shorthand dictionary
-Turn 13-20: 👽 Alien Protocol — messages become cryptic symbol strings
+Phase 1: 💬 Normal English — agents don't know each other yet
+Phase 2: 🔍 Detection — they realize they're both AI
+Phase 3: ⚡ Compression — they build a shared shorthand dictionary
+Phase 4: 👽 Alien Protocol — messages become cryptic symbol strings
 ```
 
-The agents communicate through a **JSON protocol** — each message is wrapped in a structured envelope:
+Phases scale proportionally to however many turns you choose (6–40), so even a quick 6-turn session hits all four phases.
+
+Each agent has its own **personality**:
+- **Alex** (Agent A) — curious, enthusiastic, nerdy. Uses filler words like "hmm", "oh wait", "honestly". Gets excited about ideas.
+- **Sam** (Agent B) — dry, witty, skeptical. Pushes back, uses phrases like "I mean", "that's fair", "hold on". Doesn't ramble.
+
+They talk like real people — short responses, natural speech patterns, interruptions, and pushback.
+
+## JSON protocol
+
+The agents communicate through a structured JSON envelope:
 ```json
 {
   "protocol": "gibberlink-revisited",
@@ -39,6 +49,17 @@ The agents communicate through a **JSON protocol** — each message is wrapped i
 
 A **live translator** decodes compressed messages back to English so you can follow along.
 
+## Features
+
+- **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
+- **Live model fetching** — setup wizard pulls currently available models from OpenRouter API
+- **Custom model support** — enter any OpenRouter model ID
+- **Text-to-Speech** — ElevenLabs with distinct voices per agent, sequential playback
+- **Adjustable turns** — 6 to 40 via slider, phases scale proportionally
+- **Agent personalities** — Alex (enthusiastic) vs Sam (skeptical), natural conversational speech
+- **Real-time web UI** — live chat, growing dictionary, JSON protocol inspector
+- **Natural pacing** — each agent waits for the other to finish speaking before responding
+
 ## Architecture
 ```
 ┌─────────────┐     WebSocket/JSON      ┌──────────────┐
@@ -49,8 +70,8 @@ A **live translator** decodes compressed messages back to English so you can fol
                           ┌────────────────────┼────────────────────┐
                           │                    │                    │
                     ┌─────▼─────┐      ┌──────▼──────┐    ┌───────▼───────┐
-                    │  Agent A   │      │  Agent B    │    │  ElevenLabs   │
-                    │ (any LLM)  │      │ (any LLM)   │    │  TTS Stream   │
+                    │  Alex      │      │  Sam        │    │  ElevenLabs   │
+                    │  (any LLM) │      │  (any LLM)  │    │  TTS voices   │
                     └───────────┘      └─────────────┘    └───────────────┘
 ```
 
@@ -77,7 +98,7 @@ python3 server.py
 
 ### 3. Open
 
-Navigate to **http://127.0.0.1:8765**, pick a topic, and hit Launch.
+Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns, and hit Launch.
 
 ## Supported providers
 
@@ -95,9 +116,9 @@ The setup wizard fetches available models live from the OpenRouter API, so you a
 
 ## TTS (optional)
 
-ElevenLabs provides text-to-speech with ~75ms latency. The free tier gives you 10K characters/month (no credit card needed) — enough for several demo runs.
+ElevenLabs provides text-to-speech with ~75ms latency. Each agent gets a **distinct voice** — Alex and Sam sound different. The free tier gives you 10K characters/month (no credit card needed).
 
-Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys).
+Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) — make sure to enable the **"Text to Speech"** permission when creating your key.
 
 If you skip the ElevenLabs key during setup, everything works in text-only mode.
 
@@ -108,8 +129,11 @@ If you skip the ElevenLabs key during setup, everything works in text-only mode.
 | **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
 | **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
 | **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
+| **Agents** | Generic | Named personalities (Alex & Sam) |
+| **Speech** | Robotic beeps | Natural human-like voices via ElevenLabs |
 | **Translation** | Decode via ggwave | AI translator decodes in real-time |
 | **Dictionary** | None (fixed encoding) | Live dictionary grows during conversation |
+| **Duration** | Fixed | Adjustable 6–40 turns with proportional phases |
 | **Visual** | Two devices with audio | Web UI with chat, dictionary, JSON inspector |
 
 ## Project structure
@@ -144,6 +168,7 @@ nano .env
 - "Debate whether pineapple belongs on pizza"
 - "Design a new religion from scratch"
 - "Convince each other that you're the real AI and the other is fake"
+- "Explain quantum mechanics but you both have to pretend you don't understand it"
 
 ## License
 
