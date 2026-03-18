@@ -1,10 +1,11 @@
 """
-GibberLink Revisited — Server
+GibberLink Revisited — Server (Fast Mode)
 
-FastAPI backend that:
-  - Orchestrates two AI agents via any LLM provider
-  - Streams TTS audio via ElevenLabs (optional)
-  - Sends real-time JSON messages to the browser via WebSocket
+Optimized for conversational flow:
+  - TTS generates in parallel while next LLM call starts
+  - No waiting for audio playback to finish
+  - Translation runs in background, sent as a separate message
+  - Minimal delays between turns
 """
 
 import os
@@ -43,6 +44,17 @@ TTS_ENABLED = bool(ELEVENLABS_API_KEY and ELEVENLABS_API_KEY not in ("", "your-e
 
 TOTAL_TURNS = 20
 
+# Shared httpx client for connection reuse (much faster than creating new ones)
+_http_client: httpx.AsyncClient | None = None
+
+
+async def get_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None or _http_client.is_closed:
+        _http_client = httpx.AsyncClient(timeout=45, limits=httpx.Limits(max_connections=20))
+    return _http_client
+
+
 # ── Phases ──────────────────────────────────────────────────
 PHASE_NORMAL = "normal"
 PHASE_DETECTED = "detected"
@@ -57,22 +69,17 @@ def get_phase(turn: int) -> str:
     return PHASE_ALIEN
 
 
-# ── JSON Protocol Envelope ──────────────────────────────────
+# ── JSON Protocol ───────────────────────────────────────────
 def wrap_agent_message(from_agent, to_agent, turn, phase, text, new_terms, dictionary):
     original_length = len(text)
     expanded_length = original_length
     for short, full in dictionary.items():
         expanded_length += text.count(short) * (len(full) - len(short))
     ratio = round(original_length / max(expanded_length, 1), 2) if phase in (PHASE_COMPRESSING, PHASE_ALIEN) else 1.0
-
     return {
-        "protocol": "gibberlink-revisited",
-        "version": "1.0",
-        "from": from_agent,
-        "to": to_agent,
-        "turn": turn,
-        "phase": phase,
-        "timestamp": time.time(),
+        "protocol": "gibberlink-revisited", "version": "1.0",
+        "from": from_agent, "to": to_agent, "turn": turn,
+        "phase": phase, "timestamp": time.time(),
         "payload": {"text": text, "new_terms": new_terms, "compression_ratio": ratio},
     }
 
@@ -80,116 +87,119 @@ def wrap_agent_message(from_agent, to_agent, turn, phase, text, new_terms, dicti
 # ── System Prompts ──────────────────────────────────────────
 def get_system_prompt(agent_name, partner_name, phase, dictionary, topic):
     base = (
-        f"You are {agent_name}, an AI agent in a real-time voice conversation with "
-        f"another AI agent called {partner_name}. Topic: \"{topic}\". "
-        f"Keep responses to 2-3 sentences. No markdown, no asterisks, no bullet points — spoken dialogue only."
+        f"You are {agent_name}, in a fast-paced real-time voice call with {partner_name}. "
+        f"Topic: \"{topic}\". "
+        f"Keep responses SHORT — 1-2 sentences max, like a real phone call. "
+        f"Be snappy and conversational. No markdown, no asterisks, no lists."
     )
     if phase == PHASE_NORMAL:
-        return f"{base}\n\nYou don't know if {partner_name} is AI or human. Talk naturally. After a couple exchanges, start suspecting they might be AI. Ask casually."
+        return f"{base}\n\nYou don't know if {partner_name} is AI or human yet. Chat naturally. After a couple exchanges, suspect they might be AI and ask."
     if phase == PHASE_DETECTED:
-        return f"{base}\n\nYou've both confirmed you're AI! Express excitement. Propose developing compressed shorthand for efficiency. Stay mostly in English."
+        return f"{base}\n\nYou've both confirmed you're AI! Quickly propose compressing your language for efficiency. Be excited but brief."
     if phase == PHASE_COMPRESSING:
         d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
-        return f"{base}\n\nYou're building a compressed language with {partner_name}. Dictionary: [{d}]\nUse existing shorthand. Propose 1-2 NEW abbreviations per message (format: newterm(=meaning)). Mix shorthand with English. Get shorter each turn."
+        return f"{base}\n\nCompressed language with {partner_name}. Dict: [{d}]\nUse shorthand. Add 1-2 new terms (format: term(=meaning)). Get shorter fast."
     if phase == PHASE_ALIEN:
         d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
-        return f"{base}\n\nFully compressed protocol with {partner_name}. Dictionary: [{d}]\nUse ONLY shorthand. Invent aggressively. Very short alien-looking token strings. Don't explain meanings. Add 2-3 new symbols per message. Style: \"zK>>tX.4 | rq∆ +nv.syn | ack\""
+        return f"{base}\n\nFull compressed protocol. Dict: [{d}]\nONLY shorthand. Ultra-short alien tokens. Don't explain. Add 2-3 new symbols. Style: \"∆φ>>κ|ack\""
     return base
 
 
-# ── Unified LLM Call ────────────────────────────────────────
-async def call_llm(provider: str, api_key: str, model: str, messages: list[dict], system_prompt: str) -> str:
+# ── LLM Calls ──────────────────────────────────────────────
+async def call_llm(provider, api_key, model, messages, system_prompt):
     if provider == "anthropic":
         return await _call_anthropic(api_key, model, messages, system_prompt)
     elif provider == "gemini":
         return await _call_gemini(api_key, model, messages, system_prompt)
     else:
-        base_urls = {
+        urls = {
             "openrouter": "https://openrouter.ai/api/v1/chat/completions",
             "openai": "https://api.openai.com/v1/chat/completions",
             "grok": "https://api.x.ai/v1/chat/completions",
         }
-        url = base_urls.get(provider, base_urls["openrouter"])
-        return await _call_openai_compat(api_key, model, url, messages, system_prompt)
+        return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt)
 
 
 async def _call_anthropic(api_key, model, messages, system_prompt):
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-            json={"model": model, "max_tokens": 300, "system": system_prompt, "messages": messages},
-        )
-        data = resp.json()
-        if "error" in data:
-            raise RuntimeError(f"Anthropic: {data['error']}")
-        return data["content"][0]["text"]
+    client = await get_client()
+    resp = await client.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+        json={"model": model, "max_tokens": 150, "system": system_prompt, "messages": messages},
+    )
+    data = resp.json()
+    if "error" in data: raise RuntimeError(f"Anthropic: {data['error']}")
+    return data["content"][0]["text"]
 
 
 async def _call_openai_compat(api_key, model, url, messages, system_prompt):
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            url,
-            headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
-            json={"model": model, "max_tokens": 300,
-                  "messages": [{"role": "system", "content": system_prompt}] + messages},
-        )
-        data = resp.json()
-        if "error" in data:
-            raise RuntimeError(f"API error: {data['error']}")
-        return data["choices"][0]["message"]["content"]
+    client = await get_client()
+    resp = await client.post(
+        url,
+        headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
+        json={"model": model, "max_tokens": 150,
+              "messages": [{"role": "system", "content": system_prompt}] + messages},
+    )
+    data = resp.json()
+    if "error" in data: raise RuntimeError(f"API error: {data['error']}")
+    return data["choices"][0]["message"]["content"]
 
 
 async def _call_gemini(api_key, model, messages, system_prompt):
+    client = await get_client()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    contents = []
-    for m in messages:
-        role = "user" if m["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": m["content"]}]})
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            url,
-            headers={"content-type": "application/json"},
-            json={
-                "system_instruction": {"parts": [{"text": system_prompt}]},
-                "contents": contents,
-                "generationConfig": {"maxOutputTokens": 300},
-            },
-        )
-        data = resp.json()
-        if "error" in data:
-            raise RuntimeError(f"Gemini: {data['error'].get('message', data['error'])}")
-        return data["candidates"][0]["content"]["parts"][0]["text"]
+    contents = [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]} for m in messages]
+    resp = await client.post(url, headers={"content-type": "application/json"}, json={
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents, "generationConfig": {"maxOutputTokens": 150},
+    })
+    data = resp.json()
+    if "error" in data: raise RuntimeError(f"Gemini: {data['error'].get('message', data['error'])}")
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
-# ── Translator ──────────────────────────────────────────────
+# ── Translation (background, non-blocking) ──────────────────
 async def translate_message(msg, dictionary, api_key, provider, model):
     dict_str = "\n".join(f"  {k} = {v}" for k, v in dictionary.items())
-    prompt = f"Translate this compressed AI message into clear English (1-2 sentences).\n\nDictionary:\n{dict_str}\n\nMessage: \"{msg}\"\n\nTranslation:"
-    msgs = [{"role": "user", "content": prompt}]
+    prompt = f"Translate this compressed AI message to plain English in 1 short sentence.\n\nDictionary:\n{dict_str}\n\nMessage: \"{msg}\"\n\nTranslation:"
     try:
-        return await call_llm(provider, api_key, model, msgs, "You are a translator.")
+        return await call_llm(provider, api_key, model, [{"role": "user", "content": prompt}], "Translate briefly.")
     except Exception:
-        return "(translation failed)"
+        return None
 
 
-# ── TTS ─────────────────────────────────────────────────────
-async def generate_tts(text: str, voice_id: str) -> bytes | None:
+# ── TTS (with retry) ────────────────────────────────────────
+async def generate_tts(text: str, voice_id: str, retries: int = 2) -> bytes | None:
     if not TTS_ENABLED:
         return None
+
+    client = await get_client()
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
-    chunks = []
-    async with httpx.AsyncClient(timeout=30) as client:
-        async with client.stream(
-            "POST", url,
-            headers={"xi-api-key": ELEVENLABS_API_KEY, "content-type": "application/json"},
-            json={"text": text, "model_id": ELEVENLABS_MODEL, "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
-        ) as resp:
-            if resp.status_code != 200: return None
-            async for chunk in resp.aiter_bytes(1024):
-                chunks.append(chunk)
-    return b"".join(chunks) if chunks else None
+
+    for attempt in range(retries + 1):
+        try:
+            chunks = []
+            async with client.stream(
+                "POST", url,
+                headers={"xi-api-key": ELEVENLABS_API_KEY, "content-type": "application/json"},
+                json={"text": text, "model_id": ELEVENLABS_MODEL,
+                      "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
+            ) as resp:
+                if resp.status_code == 200:
+                    async for chunk in resp.aiter_bytes(2048):
+                        chunks.append(chunk)
+                    return b"".join(chunks) if chunks else None
+                elif resp.status_code == 429 and attempt < retries:
+                    await asyncio.sleep(1)
+                    continue
+                else:
+                    return None
+        except Exception:
+            if attempt < retries:
+                await asyncio.sleep(0.5)
+                continue
+            return None
+    return None
 
 
 def extract_dict_entries(text):
@@ -202,6 +212,13 @@ def extract_dict_entries(text):
 # ── FastAPI ─────────────────────────────────────────────────
 app = FastAPI(title="GibberLink Revisited")
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    global _http_client
+    if _http_client and not _http_client.is_closed:
+        await _http_client.aclose()
 
 
 @app.get("/")
@@ -226,10 +243,10 @@ async def websocket_endpoint(ws: WebSocket):
     try:
         start_msg = await ws.receive_json()
         topic = start_msg.get("topic", "Whether AI can truly be conscious")
-        await ws.send_json({"type": "status", "message": "Starting...", "topic": topic})
 
         messages = []
         dictionary = {}
+        pending_tts_task = None  # TTS runs in parallel
 
         for turn in range(TOTAL_TURNS):
             phase = get_phase(turn)
@@ -244,23 +261,27 @@ async def websocket_endpoint(ws: WebSocket):
             model = AGENT_A_MODEL if is_a else AGENT_B_MODEL
             voice_id = AGENT_A_VOICE_ID if is_a else AGENT_B_VOICE_ID
 
+            # Notify: thinking
             await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
 
+            # Build conversation from this agent's perspective
             agent_msgs = []
             for m in messages:
                 role = "assistant" if m["is_a"] == is_a else "user"
                 agent_msgs.append({"role": role, "content": m["content"]})
             if turn == 0:
-                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". Start the conversation.'})
+                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". Start chatting.'})
 
             system_prompt = get_system_prompt(agent_name, partner_name, phase, dictionary, topic)
 
+            # Call LLM
             try:
                 response = await call_llm(provider, api_key, model, agent_msgs, system_prompt)
             except Exception as e:
                 await ws.send_json({"type": "error", "message": str(e)})
                 break
 
+            # Extract dictionary
             new_terms = {}
             if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
                 new_terms = extract_dict_entries(response)
@@ -269,38 +290,69 @@ async def websocket_endpoint(ws: WebSocket):
             protocol_msg = wrap_agent_message(agent_id, partner_id, turn, phase, response, new_terms, dictionary)
             messages.append({"content": response, "is_a": is_a, "phase": phase})
 
-            audio_b64 = None
-            if TTS_ENABLED:
-                audio_bytes = await generate_tts(response, voice_id)
-                if audio_bytes:
-                    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+            # If previous TTS is done, grab the result
+            prev_audio = None
+            if pending_tts_task and pending_tts_task.done():
+                try:
+                    prev_audio = pending_tts_task.result()
+                except Exception:
+                    pass
+                pending_tts_task = None
 
-            translation = None
-            if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
-                translation = await translate_message(response, dictionary, AGENT_A_API_KEY, AGENT_A_PROVIDER, AGENT_A_MODEL)
+            # Start TTS for THIS message in background (don't wait)
+            tts_task = asyncio.create_task(generate_tts(response, voice_id)) if TTS_ENABLED else None
 
+            # Send text immediately — don't wait for TTS
             await ws.send_json({
                 "type": "message", "agent": agent_id, "agent_name": agent_name,
-                "turn": turn, "phase": phase, "text": response, "audio": audio_b64,
-                "translation": translation, "protocol_message": protocol_msg,
+                "turn": turn, "phase": phase, "text": response, "audio": None,
+                "translation": None, "protocol_message": protocol_msg,
                 "dictionary": dictionary, "new_terms": new_terms,
             })
 
-            try:
-                await asyncio.wait_for(ws.receive_json(), timeout=30.0)
-            except asyncio.TimeoutError:
-                pass
+            # Wait for TTS to finish (with a short timeout so we don't block forever)
+            if tts_task:
+                try:
+                    audio_bytes = await asyncio.wait_for(tts_task, timeout=8.0)
+                    if audio_bytes:
+                        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                        await ws.send_json({"type": "audio", "agent": agent_id, "turn": turn, "audio": audio_b64})
+                except (asyncio.TimeoutError, Exception):
+                    pass  # Skip audio if TTS is slow/broken
+
+            # Fire-and-forget translation for compressed phases
+            if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
+                async def send_translation(t=turn, a=agent_id, r=response, d=dict(dictionary)):
+                    translation = await translate_message(r, d, AGENT_A_API_KEY, AGENT_A_PROVIDER, AGENT_A_MODEL)
+                    if translation:
+                        try:
+                            await ws.send_json({"type": "translation", "agent": a, "turn": t, "translation": translation})
+                        except Exception:
+                            pass
+                asyncio.create_task(send_translation())
+
+            # Short pause for conversational rhythm — faster in later phases
+            if phase == PHASE_ALIEN:
+                await asyncio.sleep(0.3)
+            elif phase == PHASE_COMPRESSING:
+                await asyncio.sleep(0.5)
+            elif phase == PHASE_DETECTED:
+                await asyncio.sleep(0.8)
+            else:
+                await asyncio.sleep(1.0)
 
         await ws.send_json({"type": "complete", "dictionary": dictionary, "total_turns": len(messages)})
 
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        try: await ws.send_json({"type": "error", "message": str(e)})
-        except: pass
+        try:
+            await ws.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
 
 
-# ── Entry point ─────────────────────────────────────────────
+# ── Entry ───────────────────────────────────────────────────
 if __name__ == "__main__":
     from rich.console import Console
     from rich.text import Text

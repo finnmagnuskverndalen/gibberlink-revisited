@@ -170,12 +170,32 @@ let state = {
   isPlaying: false,
 };
 
-// ── Audio ──────────────────────────────
+// ── Audio (queued playback) ────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioQueue = [];
+let isPlayingAudio = false;
+
+function queueAudio(b64) {
+  audioQueue.push(b64);
+  if (!isPlayingAudio) drainAudioQueue();
+}
+
+async function drainAudioQueue() {
+  if (isPlayingAudio || audioQueue.length === 0) return;
+  isPlayingAudio = true;
+  while (audioQueue.length > 0) {
+    const b64 = audioQueue.shift();
+    try {
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      await playAudioB64(b64);
+    } catch (e) { console.warn('Audio error:', e); }
+  }
+  isPlayingAudio = false;
+}
 
 async function playAudioB64(b64) {
   const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const buffer = await audioCtx.decodeAudioData(bytes.buffer);
+  const buffer = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
   return new Promise(resolve => {
     const source = audioCtx.createBufferSource();
     source.buffer = buffer;
@@ -216,17 +236,20 @@ function connect(topic) {
       state.turn = data.turn + 1;
       render();
       scrollChat();
+    }
 
-      // Play audio if available
-      if (data.audio) {
-        try {
-          if (audioCtx.state === 'suspended') await audioCtx.resume();
-          await playAudioB64(data.audio);
-        } catch (err) { console.warn('Audio playback failed:', err); }
-      }
+    // Audio arrives separately — queue it for playback
+    if (data.type === 'audio') {
+      const msg = state.messages.find(m => m.turn === data.turn && m.agent === data.agent);
+      if (msg) msg.audio = data.audio;
+      queueAudio(data.audio);
+      render();
+    }
 
-      // Send ack to server so it proceeds to next turn
-      ws.send(JSON.stringify({ type: 'ack' }));
+    // Translation arrives separately (async, non-blocking)
+    if (data.type === 'translation') {
+      const msg = state.messages.find(m => m.turn === data.turn && m.agent === data.agent);
+      if (msg) { msg.translation = data.translation; render(); scrollChat(); }
     }
 
     if (data.type === 'complete') {
@@ -338,12 +361,12 @@ function renderMain(app) {
           <div class="side-title">Agents</div>
           <div class="agent-info">
             <div class="agent-dot" style="background:var(--orange)"></div>
-            <div><div class="agent-label">Agent A</div><div class="agent-model">${cfg.agent_a_model || 'Claude Sonnet'}</div></div>
+            <div><div class="agent-label">Agent A</div><div class="agent-model">${cfg.agent_a_model || '?'} <span style="opacity:0.5">via ${cfg.agent_a_provider || '?'}</span></div></div>
           </div>
           <div class="vs">vs</div>
           <div class="agent-info">
             <div class="agent-dot" style="background:var(--blue)"></div>
-            <div><div class="agent-label">Agent B</div><div class="agent-model">${cfg.agent_b_model || 'OpenRouter'}</div></div>
+            <div><div class="agent-label">Agent B</div><div class="agent-model">${cfg.agent_b_model || '?'} <span style="opacity:0.5">via ${cfg.agent_b_provider || '?'}</span></div></div>
           </div>
         </div>
 
