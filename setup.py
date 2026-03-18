@@ -98,36 +98,52 @@ def ensure_venv():
         print(green("  ✓ Virtual environment created"))
     return venv_python
 
-def install_deps():
-    print(bold("\n📦 Installing Python dependencies..."))
-
-    # Detect if we're already inside the .venv
+def _get_pip() -> list:
+    """Return the pip command to use, creating a venv if needed.
+    Re-execs setup.py inside the venv on first run so all imports work."""
     in_venv = (
         hasattr(sys, "real_prefix")
         or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
     )
-
     if in_venv:
-        # Already in a venv — install directly
-        pip = [sys.executable, "-m", "pip"]
-    else:
-        # System Python on Debian/Ubuntu (PEP 668) — use/create .venv
-        venv_python = ensure_venv()
-        pip = [venv_python, "-m", "pip"]
+        return [sys.executable, "-m", "pip"]
 
-        # Re-exec setup.py inside the venv so the rest of the wizard
-        # can import freshly installed packages (httpx etc.)
-        if sys.executable != venv_python:
-            print(dim(f"  Re-launching setup inside .venv..."))
-            os.execv(venv_python, [venv_python] + sys.argv)
+    # System Python on Debian/Ubuntu (PEP 668) — create/use .venv
+    venv_python = ensure_venv()
+    if sys.executable != venv_python:
+        print(dim("  Re-launching setup inside .venv..."))
+        os.execv(venv_python, [venv_python] + sys.argv)
+    return [venv_python, "-m", "pip"]
 
+
+def install_base_deps():
+    """Install core server dependencies (always required)."""
+    print(bold("\n📦 Installing core dependencies..."))
+    pip = _get_pip()
     subprocess.check_call(pip + ["install", "-r", "requirements.txt", "-q"])
-    print(green("  ✓ Dependencies installed"))
+    print(green("  ✓ Core dependencies installed"))
 
-    print(dim(f"\n  Tip: to run the server use the venv Python:"))
-    print(dim(f"       .venv/bin/python server.py"))
-    print(dim(f"  Or activate the venv first:"))
-    print(dim(f"       source .venv/bin/activate && python server.py\n"))
+
+def install_qwen3_deps():
+    """Install Qwen3-TTS dependencies (only when TTS_PROVIDER=qwen3)."""
+    print(bold("\n📦 Installing Qwen3-TTS dependencies..."))
+    print(dim("  (torch + qwen-tts + soundfile + scipy — may take a few minutes)"))
+    pip = _get_pip()
+
+    # Install PyTorch CPU build first — the default index includes CUDA builds
+    # which are huge (~2 GB). For a GTX 1050 / CPU-inference setup the CPU
+    # build is smaller and works just as well since qwen-tts runs on CPU anyway.
+    print(dim("  Installing PyTorch (CPU build)..."))
+    subprocess.check_call(pip + [
+        "install", "torch", "torchaudio",
+        "--index-url", "https://download.pytorch.org/whl/cpu",
+        "-q",
+    ])
+
+    print(dim("  Installing qwen-tts, soundfile, scipy..."))
+    subprocess.check_call(pip + ["install", "qwen-tts", "soundfile", "scipy", "-q"])
+    print(green("  ✓ Qwen3-TTS dependencies installed"))
+    print(dim("  Note: the model weights (~1.3 GB) download on first server start.\n"))
 
 # ── OpenRouter live model fetch ──────────────────────────────
 
@@ -343,26 +359,94 @@ def configure_agent(label, default_provider="openrouter", default_model=None,
     return provider, api_key, model
 
 
-# ── ElevenLabs TTS ───────────────────────────────────────────
+# ── TTS configuration ────────────────────────────────────────
+
+QWEN3_SPEAKERS = [
+    ("Ryan",   "Male   — youthful, clear, natural"),
+    ("Ethan",  "Male   — seasoned, low and mellow"),
+    ("Miles",  "Male   — calm, measured"),
+    ("Leo",    "Male   — warm, conversational"),
+    ("Vivian", "Female — bright, slightly edgy"),
+    ("Cherry", "Female — warm, gentle"),
+    ("Serena", "Female — smooth, professional"),
+    ("Nova",   "Female — energetic, expressive"),
+]
 
 def configure_tts():
     print(bold(f"\n{'─'*50}"))
-    print(bold("  🔊 Text-to-Speech (ElevenLabs — optional)"))
+    print(bold("  🔊 Text-to-Speech"))
     print(f"{'─'*50}")
-    print("  Free tier: 10K characters/month, no credit card needed.")
-    print(f"  Get a key at: {cyan('https://elevenlabs.io/app/settings/api-keys')}")
-    print(dim("  (Press Enter to skip TTS and run in text-only mode)"))
+    print("  Choose a TTS provider for agent voices:\n")
+    print(f"    {cyan('1')}. ElevenLabs  {dim('— cloud API, best quality, 10K chars/month free')}")
+    print(f"    {cyan('2')}. Qwen3-TTS   {dim('— runs locally on your machine, free forever')}")
+    print(f"    {cyan('3')}. None        {dim('— text-only mode, no audio')}")
+    print()
 
-    api_key = ask("  ElevenLabs API key", default="")
-    if not api_key:
+    choice = input("  Pick TTS provider [1/2/3, default: 3]: ").strip()
+
+    if choice == "1":
+        return _configure_elevenlabs()
+    elif choice == "2":
+        return _configure_qwen3()
+    else:
         print(dim("  Skipping TTS — running in text-only mode"))
-        return "", "21m00Tcm4TlvDq8ikWAM", "pNInz6obpgDQGcFmaJgB"
+        return {"provider": "none"}
 
-    print(f"\n  Default voices: Alex={dim('Rachel')}  Sam={dim('Adam')}")
-    print(dim("  (Press Enter to keep defaults, or paste a voice ID from elevenlabs.io/voice-library)"))
+
+def _configure_elevenlabs():
+    print(f"\n  {bold('ElevenLabs')}")
+    print(f"  Free tier: 10K chars/month — {cyan('https://elevenlabs.io/app/settings/api-keys')}")
+    api_key = ask("  API key (sk-...)", default="")
+    if not api_key:
+        print(yellow("  ⚠ No key entered — falling back to text-only"))
+        return {"provider": "none"}
+    print(f"\n  Default voices: Alex={dim('Rachel (21m00Tcm4TlvDq8ikWAM)')}  Sam={dim('Adam (pNInz6obpgDQGcFmaJgB)')}")
+    print(dim("  Press Enter to keep defaults, or paste a voice ID from elevenlabs.io/voice-library"))
     voice_a = ask("  Alex voice ID", default="21m00Tcm4TlvDq8ikWAM")
     voice_b = ask("  Sam voice ID",  default="pNInz6obpgDQGcFmaJgB")
-    return api_key, voice_a, voice_b
+    return {
+        "provider":    "elevenlabs",
+        "api_key":     api_key,
+        "voice_a":     voice_a,
+        "voice_b":     voice_b,
+        "model":       "eleven_flash_v2_5",
+    }
+
+
+def _configure_qwen3():
+    print(f"\n  {bold('Qwen3-TTS — local inference')}")
+    print(f"  Model: {cyan('Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice')} (~1.3 GB download)")
+    print(dim("  Runs on CPU — expect 5-15s per sentence on modest hardware."))
+    print(dim("  A separate tts_server.py will handle inference so server.py stays fast.\n"))
+
+    print(bold("  Speaker voices:"))
+    for i, (name, desc) in enumerate(QWEN3_SPEAKERS, 1):
+        print(f"    {cyan(str(i))}. {name:<8} {dim(desc)}")
+
+    def pick_speaker(label, default_name):
+        raw = input(f"\n  Pick {label} voice [default: {default_name}]: ").strip()
+        if not raw:
+            return default_name
+        try:
+            idx = int(raw) - 1
+            if 0 <= idx < len(QWEN3_SPEAKERS):
+                return QWEN3_SPEAKERS[idx][0]
+        except ValueError:
+            if raw in [s[0] for s in QWEN3_SPEAKERS]:
+                return raw
+        print(yellow(f"  Invalid — using {default_name}"))
+        return default_name
+
+    voice_a = pick_speaker("Alex (Agent A)", "Ryan")
+    voice_b = pick_speaker("Sam  (Agent B)", "Ethan")
+
+    port = ask("  TTS server port", default="7861")
+    return {
+        "provider": "qwen3",
+        "voice_a":  voice_a,
+        "voice_b":  voice_b,
+        "port":     port,
+    }
 
 
 # ── Write .env ───────────────────────────────────────────────
@@ -370,7 +454,25 @@ def configure_tts():
 def write_env(agent_a, agent_b, tts):
     a_provider, a_key, a_model = agent_a
     b_provider, b_key, b_model = agent_b
-    tts_key, voice_a, voice_b = tts
+    p = tts.get("provider", "none")
+
+    # Build TTS block depending on provider
+    if p == "elevenlabs":
+        tts_block = f"""# ── TTS: ElevenLabs ─────────────────────────────────────────
+TTS_PROVIDER=elevenlabs
+ELEVENLABS_API_KEY={tts["api_key"]}
+ELEVENLABS_MODEL={tts["model"]}
+AGENT_A_VOICE_ID={tts["voice_a"]}
+AGENT_B_VOICE_ID={tts["voice_b"]}"""
+    elif p == "qwen3":
+        tts_block = f"""# ── TTS: Qwen3-TTS local ────────────────────────────────────
+# Start the TTS server first:  python tts_server.py
+TTS_PROVIDER=qwen3
+QWEN3_TTS_URL=http://localhost:{tts["port"]}
+AGENT_A_QWEN3_VOICE={tts["voice_a"]}
+AGENT_B_QWEN3_VOICE={tts["voice_b"]}"""
+    else:
+        tts_block = "# ── TTS: disabled ──────────────────────────────────────────\nTTS_PROVIDER=none"
 
     env_content = f"""# GibberLink Revisited — generated by setup.py
 # Re-run `python3 setup.py` at any time to reconfigure.
@@ -385,11 +487,7 @@ AGENT_B_PROVIDER={b_provider}
 AGENT_B_API_KEY={b_key}
 AGENT_B_MODEL={b_model}
 
-# ── ElevenLabs TTS (optional) ────────────────────────────────
-ELEVENLABS_API_KEY={tts_key}
-AGENT_A_VOICE_ID={voice_a}
-AGENT_B_VOICE_ID={voice_b}
-ELEVENLABS_MODEL=eleven_flash_v2_5
+{tts_block}
 
 # ── Server ───────────────────────────────────────────────────
 HOST=127.0.0.1
@@ -399,13 +497,20 @@ PORT=8765
         f.write(env_content)
     print(green("\n  ✓ .env written"))
 
+    # If Qwen3 was chosen, print setup instructions
+    if p == "qwen3":
+        print()
+        print(bold("  ▶  Just run GibberLink — tts_server.py starts automatically:"))
+        print(f"       {cyan('python server.py')}")
+        print(dim("       (First start downloads model weights ~1.3 GB and loads them into memory)"))
+
 
 # ── Main ─────────────────────────────────────────────────────
 
 def main():
     print(bold("\n🔗 GibberLink Revisited — Setup Wizard\n"))
 
-    install_deps()
+    install_base_deps()
 
     # Try to get OpenRouter key early so we can fetch live models
     print(bold("\n🌐 Fetching live models from OpenRouter..."))
@@ -445,6 +550,11 @@ def main():
     )
 
     tts = configure_tts()
+
+    # Install Qwen3 deps right after TTS selection, before writing .env,
+    # so the user sees any install errors before setup is considered done.
+    if tts.get("provider") == "qwen3":
+        install_qwen3_deps()
 
     write_env(agent_a, agent_b, tts)
 

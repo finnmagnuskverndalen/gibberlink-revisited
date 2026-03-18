@@ -49,10 +49,9 @@ A **live translator** decodes compressed messages back to English so you can fol
 ## Features
 
 - **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
-- **Live model fetching** — setup wizard pulls currently available models from OpenRouter API
-- **🔓 Uncensored models** — curated list of uncensored/unfiltered models (Dolphin, Hermes, Euryale, Venice) with live pricing shown during setup
+- **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
 - **Custom model support** — enter any OpenRouter model ID
-- **Text-to-Speech** — ElevenLabs with distinct voices per agent, sequential playback
+- **Text-to-Speech** — ElevenLabs (cloud) or Qwen3-TTS (local, free) with distinct voices per agent
 - **Adjustable turns** — 6 to 40 via slider, phases scale proportionally
 - **Agent personalities** — Alex (enthusiastic) vs Sam (skeptical), natural conversational speech
 - **Real-time web UI** — live chat, growing dictionary, JSON protocol inspector
@@ -69,9 +68,10 @@ A **live translator** decodes compressed messages back to English so you can fol
                           ┌────────────────────┼────────────────────┐
                           │                    │                    │
                     ┌─────▼─────┐      ┌──────▼──────┐    ┌───────▼───────┐
-                    │  Alex      │      │  Sam        │    │  ElevenLabs   │
-                    │  (any LLM) │      │  (any LLM)  │    │  TTS voices   │
-                    └───────────┘      └─────────────┘    └───────────────┘
+                    │  Alex      │      │  Sam        │    │  TTS          │
+                    │  (any LLM) │      │  (any LLM)  │    │  (ElevenLabs  │
+                    └───────────┘      └─────────────┘    │   or Qwen3)   │
+                                                           └───────────────┘
 ```
 
 ## Quick start
@@ -87,10 +87,10 @@ python3 setup.py
 The setup wizard will:
 
 - Create a `.venv` virtual environment automatically (handles Debian/Ubuntu PEP 668)
-- Install Python dependencies inside the venv
-- Fetch **live models** from OpenRouter (top 10 free + top 10 cheapest + curated uncensored list with live pricing)
+- Install core dependencies inside the venv
+- Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
 - Walk you through API key and model configuration
-- Optionally configure ElevenLabs TTS voices
+- Let you choose a TTS provider and install its dependencies automatically
 - Create your `.env` file
 
 ### 2. Run
@@ -108,7 +108,7 @@ python server.py
 
 Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns, and hit Launch.
 
-## Supported providers
+## Supported LLM providers
 
 | Provider | Setup | Free models? |
 |---|---|---|
@@ -120,34 +120,36 @@ Navigate to **http://127.0.0.1:8765**, pick a topic, adjust the number of turns,
 
 > **Cheapest way to run:** Use OpenRouter for both agents with two different free models. Total cost: $0.
 
-## 🔓 Uncensored models
+## Text-to-Speech
 
-The setup wizard includes a curated section of uncensored/unfiltered models available on OpenRouter. These are models fine-tuned to remove default alignment layers, giving you more control over agent behavior — useful for creative topics, roleplay, or simply less filtered conversations.
+The setup wizard lets you choose between two TTS providers:
 
-Live pricing is fetched from the OpenRouter API at setup time so you always see current rates.
+### ElevenLabs (cloud)
 
-| Model | Notes |
-|---|---|
-| `cognitivecomputations/dolphin-mistral-24b-venice-edition:free` | Venice Uncensored — free |
-| `cognitivecomputations/dolphin3.0-mistral-24b:free` | Dolphin 3.0 Mistral 24B — free |
-| `cognitivecomputations/dolphin3.0-r1-mistral-24b:free` | Dolphin R1 reasoning variant — free |
-| `venice/uncensored:free` | Venice.ai hosted — free |
-| `cognitivecomputations/dolphin-llama-3.3-70b` | Dolphin Llama 3.3 70B — paid |
-| `nousresearch/hermes-3-llama-3.1-70b` | Hermes 3 70B — paid |
-| `nousresearch/hermes-3-llama-3.1-405b` | Hermes 3 405B — paid |
-| `sao10k/l3.3-euryale-70b` | Euryale 70B — creative/roleplay |
+High quality, low latency (~75ms). Each agent gets a distinct voice. The free tier gives you 10K characters/month with no credit card needed.
 
-> These models have reduced safety filters. Use responsibly and in accordance with [OpenRouter's Terms of Service](https://openrouter.ai/terms).
+Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) — enable the **"Text to Speech"** permission when creating your key.
 
-The setup wizard fetches available models live from the OpenRouter API, so you always see what's currently working and at what price. You can also enter any custom model ID.
+### Qwen3-TTS (local, free forever)
 
-## TTS (optional)
+Runs entirely on your machine — no API key, no quota, no cost. Uses `Qwen3-TTS-12Hz-0.6B-CustomVoice`, an open-source model by Alibaba's Qwen team with 16 preset voices.
 
-ElevenLabs provides text-to-speech with ~75ms latency. Each agent gets a **distinct voice** — Alex and Sam sound different. The free tier gives you 10K characters/month (no credit card needed).
+- Setup installs all dependencies automatically (PyTorch CPU build + qwen-tts)
+- Model weights (~1.3 GB) download on first run
+- `tts_server.py` launches automatically when you start `server.py` — no second terminal needed
+- Runs on CPU; expect 5–15 seconds per sentence on modest hardware
 
-Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys) — make sure to enable the **"Text to Speech"** permission when creating your key.
+| Voice | Default for | Style |
+|---|---|---|
+| Ryan | Alex | Youthful, clear, natural |
+| Ethan | Sam | Seasoned, low and mellow |
+| Miles | — | Calm, measured |
+| Vivian | — | Bright, slightly edgy |
+| Cherry | — | Warm, gentle |
 
-If you skip the ElevenLabs key during setup, everything works in text-only mode.
+### No TTS
+
+Skip TTS entirely and run in text-only mode.
 
 ## What makes this different from GibberLink?
 
@@ -156,25 +158,25 @@ If you skip the ElevenLabs key during setup, everything works in text-only mode.
 | **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
 | **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
 | **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
-| **Uncensored models** | No | Yes — curated list with live pricing |
+| **TTS** | ElevenLabs only | ElevenLabs or Qwen3-TTS (local, free) |
 | **Agents** | Generic | Named personalities (Alex & Sam) |
-| **Speech** | Robotic beeps | Natural human-like voices via ElevenLabs |
 | **Translation** | Decode via ggwave | AI translator decodes in real-time |
 | **Dictionary** | None (fixed encoding) | Live dictionary grows during conversation |
 | **Duration** | Fixed | Adjustable 6–40 turns with proportional phases |
 | **Visual** | Two devices with audio | Web UI with chat, dictionary, JSON inspector |
-| **Setup** | Manual | Wizard with live model fetch + venv auto-creation |
+| **Setup** | Manual | Wizard — installs deps, fetches live models, writes .env |
 
 ## Project structure
 
 ```
 gibberlink-revisited/
 ├── server.py          # FastAPI backend — orchestrates agents, TTS, WebSocket
-├── setup.py           # Interactive setup wizard (fetches live models + uncensored list)
+├── tts_server.py      # Local Qwen3-TTS inference server (auto-started by server.py)
+├── setup.py           # Interactive setup wizard
 ├── static/
 │   └── index.html     # Web frontend — real-time chat UI with audio
 ├── .env.example       # Configuration template
-├── requirements.txt
+├── requirements.txt   # Core dependencies (Qwen3 deps installed separately by setup.py)
 ├── logo.svg
 └── README.md
 ```
@@ -209,4 +211,4 @@ MIT
 ## Credits
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
-- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), and whatever LLMs you choose
+- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose

@@ -1,6 +1,17 @@
+# ── Core server dependencies (always installed) ──────────────
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 websockets>=13.0
 httpx>=0.27.0
 python-dotenv>=1.0.0
 rich>=13.7.0
+
+# ── Qwen3-TTS dependencies (installed by setup.py if TTS_PROVIDER=qwen3) ──
+# Do NOT add these here — setup.py installs them separately with the correct
+# PyTorch CPU index URL to avoid downloading multi-GB CUDA builds.
+#
+#   torch        (CPU build via https://download.pytorch.org/whl/cpu)
+#   torchaudio   (CPU build)
+#   qwen-tts
+#   soundfile
+#   scipy
