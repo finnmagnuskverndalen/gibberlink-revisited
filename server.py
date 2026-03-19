@@ -686,7 +686,7 @@ async def websocket_endpoint(ws: WebSocket):
             else:
                 return min(95 + int((pct - 0.80) * 100 * 0.25), 100)
 
-        async def build_turn(turn):
+        async def build_turn(turn, send_thinking=True):
             phase     = get_phase(turn)
             agent_idx = turn % len(agents)
             agent     = agents[agent_idx]
@@ -702,7 +702,8 @@ async def websocket_endpoint(ws: WebSocket):
             else:
                 voice_id = agent["voice_el"]
 
-            await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
+            # NOTE: thinking is sent from the main loop, not here,
+            # to avoid racing with other WebSocket sends when pipelined.
 
             # Build conversation history for this agent
             agent_msgs = []
@@ -761,23 +762,57 @@ async def websocket_endpoint(ws: WebSocket):
                 "turn": turn,
             }
 
-        # ── Pipelined turn loop ───────────────────────────────────
-        next_task = asyncio.create_task(build_turn(0))
+        # ── Pipelined turn loop ────────────────────────────────────
+        # Strategy for natural conversation flow:
+        #   1. Send thinking indicator (main loop, safe)
+        #   2. Start LLM + TTS generation as a task
+        #   3. Await the task result
+        #   4. Send the message payload
+        #   5. Wait for client ack (client acks immediately for text,
+        #      or after audio finishes playing)
+        #   6. While client plays audio, the NEXT turn's LLM call
+        #      is already running in the background.
+        #
+        # The race condition fix: build_turn() never touches the
+        # WebSocket — all ws.send_json calls happen sequentially
+        # in this main loop. The background task only does LLM + TTS.
+
+        pending_task = None
 
         for turn in range(total_turns):
+            # If we have a pre-started task from the previous iteration, use it.
+            # Otherwise start fresh (first turn, or after an error).
+            if pending_task is None:
+                # Send thinking for this turn
+                phase = get_phase(turn)
+                agent_idx = turn % len(agents)
+                agent_id = agents[agent_idx]["id"]
+                await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
+                pending_task = asyncio.create_task(build_turn(turn))
+
             try:
-                result = await next_task
+                result = await pending_task
+                pending_task = None
             except Exception as e:
+                pending_task = None
                 await ws.send_json({"type": "error", "message": str(e)})
                 break
 
-            if turn + 1 < total_turns:
-                next_task = asyncio.create_task(build_turn(turn + 1))
-
+            # Send the message payload (text + audio)
             await ws.send_json(result["payload"])
 
+            # Pre-start the NEXT turn's LLM+TTS while the client plays audio.
+            # Send its thinking indicator now (sequentially, safe).
+            if turn + 1 < total_turns:
+                next_phase = get_phase(turn + 1)
+                next_agent_idx = (turn + 1) % len(agents)
+                next_agent_id = agents[next_agent_idx]["id"]
+                await ws.send_json({"type": "thinking", "agent": next_agent_id, "turn": turn + 1, "phase": next_phase})
+                pending_task = asyncio.create_task(build_turn(turn + 1))
+
+            # Wait for client ack (sent after audio finishes or immediately if no audio)
             try:
-                await asyncio.wait_for(ws.receive_json(), timeout=60.0)
+                await asyncio.wait_for(ws.receive_json(), timeout=120.0)
             except asyncio.TimeoutError:
                 pass
 
