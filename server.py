@@ -82,6 +82,14 @@ AGENT_B_PROVIDER = os.getenv("AGENT_B_PROVIDER", "openrouter")
 AGENT_B_API_KEY  = os.getenv("AGENT_B_API_KEY", "")
 AGENT_B_MODEL    = os.getenv("AGENT_B_MODEL", "meta-llama/llama-4-maverick:free")
 
+AGENT_C_PROVIDER = os.getenv("AGENT_C_PROVIDER", "openrouter")
+AGENT_C_API_KEY  = os.getenv("AGENT_C_API_KEY", "")
+AGENT_C_MODEL    = os.getenv("AGENT_C_MODEL", "google/gemini-2.0-flash-exp:free")
+
+AGENT_D_PROVIDER = os.getenv("AGENT_D_PROVIDER", "openrouter")
+AGENT_D_API_KEY  = os.getenv("AGENT_D_API_KEY", "")
+AGENT_D_MODEL    = os.getenv("AGENT_D_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
+
 # ── TTS config ───────────────────────────────────────────────
 # TTS_PROVIDER controls which backend is used:
 #   "elevenlabs"  — original ElevenLabs cloud API
@@ -93,17 +101,23 @@ TTS_PROVIDER = os.getenv("TTS_PROVIDER", "none").lower()
 ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
 AGENT_A_VOICE_ID    = os.getenv("AGENT_A_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 AGENT_B_VOICE_ID    = os.getenv("AGENT_B_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
+AGENT_C_VOICE_ID    = os.getenv("AGENT_C_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+AGENT_D_VOICE_ID    = os.getenv("AGENT_D_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
 ELEVENLABS_MODEL    = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
 
 # Kokoro-ONNX settings (used when TTS_PROVIDER=kokoro)
 KOKORO_TTS_URL       = os.getenv("KOKORO_TTS_URL", "http://localhost:7862")
 AGENT_A_KOKORO_VOICE = os.getenv("AGENT_A_KOKORO_VOICE", "am_michael")
 AGENT_B_KOKORO_VOICE = os.getenv("AGENT_B_KOKORO_VOICE", "bm_george")
+AGENT_C_KOKORO_VOICE = os.getenv("AGENT_C_KOKORO_VOICE", "am_adam")
+AGENT_D_KOKORO_VOICE = os.getenv("AGENT_D_KOKORO_VOICE", "bm_lewis")
 
 # Qwen3-TTS settings (used when TTS_PROVIDER=qwen3)
 QWEN3_TTS_URL       = os.getenv("QWEN3_TTS_URL", "http://localhost:7861")
 AGENT_A_QWEN3_VOICE = os.getenv("AGENT_A_QWEN3_VOICE", "Ryan")
 AGENT_B_QWEN3_VOICE = os.getenv("AGENT_B_QWEN3_VOICE", "Ethan")
+AGENT_C_QWEN3_VOICE = os.getenv("AGENT_C_QWEN3_VOICE", "Miles")
+AGENT_D_QWEN3_VOICE = os.getenv("AGENT_D_QWEN3_VOICE", "Leo")
 
 HOST       = os.getenv("HOST", "127.0.0.1")
 PORT       = int(os.getenv("PORT", "8765"))
@@ -381,20 +395,20 @@ DEFAULT_AGENTS = [
 KOKORO_VOICE_MAP = {
     "agent_a": AGENT_A_KOKORO_VOICE,
     "agent_b": AGENT_B_KOKORO_VOICE,
-    "agent_c": "Miles",
-    "agent_d": "Leo",
+    "agent_c": AGENT_C_KOKORO_VOICE,
+    "agent_d": AGENT_D_KOKORO_VOICE,
 }
 EL_VOICE_MAP = {
     "agent_a": AGENT_A_VOICE_ID,
     "agent_b": AGENT_B_VOICE_ID,
-    "agent_c": "21m00Tcm4TlvDq8ikWAM",
-    "agent_d": "pNInz6obpgDQGcFmaJgB",
+    "agent_c": AGENT_C_VOICE_ID,
+    "agent_d": AGENT_D_VOICE_ID,
 }
 QWEN3_VOICE_MAP = {
     "agent_a": AGENT_A_QWEN3_VOICE,
     "agent_b": AGENT_B_QWEN3_VOICE,
-    "agent_c": "Miles",
-    "agent_d": "Leo",
+    "agent_c": AGENT_C_QWEN3_VOICE,
+    "agent_d": AGENT_D_QWEN3_VOICE,
 }
 
 MOOD_SNIPPETS = {
@@ -758,9 +772,9 @@ async def websocket_endpoint(ws: WebSocket):
                 if req.get("mood"):        base["mood"]        = req["mood"]
                 if req.get("personality"): base["personality"] = req["personality"]
             # Fill in server credentials
-            base["provider"] = [AGENT_A_PROVIDER, AGENT_B_PROVIDER, AGENT_A_PROVIDER, AGENT_B_PROVIDER][i]
-            base["api_key"]  = [AGENT_A_API_KEY,  AGENT_B_API_KEY,  AGENT_A_API_KEY,  AGENT_B_API_KEY][i]
-            base["model"]    = [AGENT_A_MODEL,     AGENT_B_MODEL,     AGENT_A_MODEL,     AGENT_B_MODEL][i]
+            base["provider"] = [AGENT_A_PROVIDER, AGENT_B_PROVIDER, AGENT_C_PROVIDER, AGENT_D_PROVIDER][i]
+            base["api_key"]  = [AGENT_A_API_KEY,  AGENT_B_API_KEY,  AGENT_C_API_KEY,  AGENT_D_API_KEY][i]
+            base["model"]    = [AGENT_A_MODEL,     AGENT_B_MODEL,     AGENT_C_MODEL,     AGENT_D_MODEL][i]
             aid = base["id"]
             base["voice_kokoro"] = KOKORO_VOICE_MAP.get(aid, "Miles")
             base["voice_el"]     = EL_VOICE_MAP.get(aid, AGENT_A_VOICE_ID)
@@ -921,8 +935,10 @@ if __name__ == "__main__":
 
     c.print(Text(banner, style="bold rgb(255,107,61)"))
     c.print()
-    c.print(f"  [green]✓[/green] Agent A (Alex): [bold]{AGENT_A_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_A_PROVIDER})")
-    c.print(f"  [green]✓[/green] Agent B (Sam):  [bold]{AGENT_B_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_B_PROVIDER})")
+    c.print(f"  [green]✓[/green] Agent A (Alex):   [bold]{AGENT_A_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_A_PROVIDER})")
+    c.print(f"  [green]✓[/green] Agent B (Sam):    [bold]{AGENT_B_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_B_PROVIDER})")
+    c.print(f"  [green]✓[/green] Agent C (Jordan): [bold]{AGENT_C_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_C_PROVIDER})")
+    c.print(f"  [green]✓[/green] Agent D (Riley):  [bold]{AGENT_D_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_D_PROVIDER})")
 
     if EFFECTIVE_TTS == "elevenlabs":
         tts_label = f"ElevenLabs  voices={AGENT_A_VOICE_ID[:8]}... / {AGENT_B_VOICE_ID[:8]}..."

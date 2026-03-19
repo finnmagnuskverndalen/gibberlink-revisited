@@ -414,13 +414,17 @@ def _configure_elevenlabs():
         return {"provider": "none"}
     print(f"\n  Default voices: Alex={dim('Rachel (21m00Tcm4TlvDq8ikWAM)')}  Sam={dim('Adam (pNInz6obpgDQGcFmaJgB)')}")
     print(dim("  Press Enter to keep defaults, or paste a voice ID from elevenlabs.io/voice-library"))
-    voice_a = ask("  Alex voice ID", default="21m00Tcm4TlvDq8ikWAM")
-    voice_b = ask("  Sam voice ID",  default="pNInz6obpgDQGcFmaJgB")
+    voice_a = ask("  Alex  (Agent A) voice ID", default="21m00Tcm4TlvDq8ikWAM")
+    voice_b = ask("  Sam   (Agent B) voice ID", default="pNInz6obpgDQGcFmaJgB")
+    voice_c = ask("  Jordan(Agent C) voice ID", default="21m00Tcm4TlvDq8ikWAM")
+    voice_d = ask("  Riley (Agent D) voice ID", default="pNInz6obpgDQGcFmaJgB")
     return {
         "provider":    "elevenlabs",
         "api_key":     api_key,
         "voice_a":     voice_a,
         "voice_b":     voice_b,
+        "voice_c":     voice_c,
+        "voice_d":     voice_d,
         "model":       "eleven_flash_v2_5",
     }
 
@@ -449,14 +453,18 @@ def _configure_qwen3():
         print(yellow(f"  Invalid — using {default_name}"))
         return default_name
 
-    voice_a = pick_speaker("Alex (Agent A)", "Ryan")
-    voice_b = pick_speaker("Sam  (Agent B)", "Ethan")
+    voice_a = pick_speaker("Alex  (Agent A)", "Ryan")
+    voice_b = pick_speaker("Sam   (Agent B)", "Ethan")
+    voice_c = pick_speaker("Jordan(Agent C)", "Miles")
+    voice_d = pick_speaker("Riley (Agent D)", "Leo")
 
     port = ask("  TTS server port", default="7861")
     return {
         "provider": "qwen3",
         "voice_a":  voice_a,
         "voice_b":  voice_b,
+        "voice_c":  voice_c,
+        "voice_d":  voice_d,
         "port":     port,
     }
 
@@ -484,22 +492,28 @@ def _configure_kokoro():
         print(yellow(f"  Invalid — using {default_id}"))
         return default_id
 
-    voice_a = pick_voice("Alex (Agent A)", "am_michael")
-    voice_b = pick_voice("Sam  (Agent B)", "bm_george")
+    voice_a = pick_voice("Alex  (Agent A)", "am_michael")
+    voice_b = pick_voice("Sam   (Agent B)", "bm_george")
+    voice_c = pick_voice("Jordan(Agent C)", "am_adam")
+    voice_d = pick_voice("Riley (Agent D)", "bm_lewis")
     port = ask("  TTS server port", default="7862")
     return {
         "provider": "kokoro",
         "voice_a":  voice_a,
         "voice_b":  voice_b,
+        "voice_c":  voice_c,
+        "voice_d":  voice_d,
         "port":     port,
     }
 
 
 # ── Write .env ───────────────────────────────────────────────
 
-def write_env(agent_a, agent_b, tts):
+def write_env(agent_a, agent_b, agent_c, agent_d, tts):
     a_provider, a_key, a_model = agent_a
     b_provider, b_key, b_model = agent_b
+    c_provider, c_key, c_model = agent_c
+    d_provider, d_key, d_model = agent_d
     p = tts.get("provider", "none")
 
     # Build TTS block depending on provider
@@ -509,19 +523,25 @@ TTS_PROVIDER=elevenlabs
 ELEVENLABS_API_KEY={tts["api_key"]}
 ELEVENLABS_MODEL={tts["model"]}
 AGENT_A_VOICE_ID={tts["voice_a"]}
-AGENT_B_VOICE_ID={tts["voice_b"]}"""
+AGENT_B_VOICE_ID={tts["voice_b"]}
+AGENT_C_VOICE_ID={tts.get("voice_c", tts["voice_a"])}
+AGENT_D_VOICE_ID={tts.get("voice_d", tts["voice_b"])}"""
     elif p == "kokoro":
         tts_block = f"""# ── TTS: Kokoro local ───────────────────────────────────────
 TTS_PROVIDER=kokoro
 KOKORO_TTS_URL=http://localhost:{tts["port"]}
 AGENT_A_KOKORO_VOICE={tts["voice_a"]}
-AGENT_B_KOKORO_VOICE={tts["voice_b"]}"""
+AGENT_B_KOKORO_VOICE={tts["voice_b"]}
+AGENT_C_KOKORO_VOICE={tts.get("voice_c", "am_adam")}
+AGENT_D_KOKORO_VOICE={tts.get("voice_d", "bm_lewis")}"""
     elif p == "qwen3":
         tts_block = f"""# ── TTS: Qwen3-TTS local ────────────────────────────────────
 TTS_PROVIDER=qwen3
 QWEN3_TTS_URL=http://localhost:{tts["port"]}
 AGENT_A_QWEN3_VOICE={tts["voice_a"]}
-AGENT_B_QWEN3_VOICE={tts["voice_b"]}"""
+AGENT_B_QWEN3_VOICE={tts["voice_b"]}
+AGENT_C_QWEN3_VOICE={tts.get("voice_c", "Miles")}
+AGENT_D_QWEN3_VOICE={tts.get("voice_d", "Leo")}"""
     else:
         tts_block = "# ── TTS: disabled ──────────────────────────────────────────\nTTS_PROVIDER=none"
 
@@ -538,6 +558,15 @@ AGENT_B_PROVIDER={b_provider}
 AGENT_B_API_KEY={b_key}
 AGENT_B_MODEL={b_model}
 
+# ── Agent C (Jordan) ─────────────────────────────────────────
+AGENT_C_PROVIDER={c_provider}
+AGENT_C_API_KEY={c_key}
+AGENT_C_MODEL={c_model}
+
+# ── Agent D (Riley) ──────────────────────────────────────────
+AGENT_D_PROVIDER={d_provider}
+AGENT_D_API_KEY={d_key}
+AGENT_D_MODEL={d_model}
 {tts_block}
 
 # ── Server ───────────────────────────────────────────────────
@@ -603,6 +632,22 @@ def main():
         paid_models=paid_models,
     )
 
+    agent_c = configure_agent(
+        "Agent C — Jordan",
+        default_provider="openrouter",
+        default_model="google/gemini-2.0-flash-exp:free",
+        free_models=free_models,
+        paid_models=paid_models,
+    )
+
+    agent_d = configure_agent(
+        "Agent D — Riley",
+        default_provider="openrouter",
+        default_model="mistralai/mistral-small-3.1-24b-instruct:free",
+        free_models=free_models,
+        paid_models=paid_models,
+    )
+
     tts = configure_tts()
 
     # Install TTS deps right after selection so errors surface before .env is written
@@ -611,7 +656,7 @@ def main():
     elif tts.get("provider") == "qwen3":
         install_qwen3_deps()
 
-    write_env(agent_a, agent_b, tts)
+    write_env(agent_a, agent_b, agent_c, agent_d, tts)
 
     print(bold("\n✅ Setup complete!\n"))
     print(f"  Run the server:  {cyan('python3 server.py')}")
