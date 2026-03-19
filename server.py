@@ -87,6 +87,10 @@ AGENT_D_PROVIDER = os.getenv("AGENT_D_PROVIDER", "openrouter")
 AGENT_D_API_KEY  = os.getenv("AGENT_D_API_KEY", "")
 AGENT_D_MODEL    = os.getenv("AGENT_D_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
 
+CHAIRMAN_PROVIDER = os.getenv("CHAIRMAN_PROVIDER", "openrouter")
+CHAIRMAN_API_KEY  = os.getenv("CHAIRMAN_API_KEY", "")
+CHAIRMAN_MODEL    = os.getenv("CHAIRMAN_MODEL", "deepseek/deepseek-chat-v3-0324:free")
+
 # ── TTS config ───────────────────────────────────────────────
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "none").lower()
 
@@ -95,6 +99,7 @@ AGENT_A_VOICE_ID    = os.getenv("AGENT_A_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 AGENT_B_VOICE_ID    = os.getenv("AGENT_B_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
 AGENT_C_VOICE_ID    = os.getenv("AGENT_C_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 AGENT_D_VOICE_ID    = os.getenv("AGENT_D_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
+CHAIRMAN_VOICE_ID   = os.getenv("CHAIRMAN_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 ELEVENLABS_MODEL    = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
 
 KOKORO_TTS_URL       = os.getenv("KOKORO_TTS_URL", "http://localhost:7862")
@@ -102,12 +107,14 @@ AGENT_A_KOKORO_VOICE = os.getenv("AGENT_A_KOKORO_VOICE", "am_michael")
 AGENT_B_KOKORO_VOICE = os.getenv("AGENT_B_KOKORO_VOICE", "bm_george")
 AGENT_C_KOKORO_VOICE = os.getenv("AGENT_C_KOKORO_VOICE", "am_adam")
 AGENT_D_KOKORO_VOICE = os.getenv("AGENT_D_KOKORO_VOICE", "bm_lewis")
+CHAIRMAN_KOKORO_VOICE = os.getenv("CHAIRMAN_KOKORO_VOICE", "am_echo")
 
 QWEN3_TTS_URL       = os.getenv("QWEN3_TTS_URL", "http://localhost:7861")
 AGENT_A_QWEN3_VOICE = os.getenv("AGENT_A_QWEN3_VOICE", "Ryan")
 AGENT_B_QWEN3_VOICE = os.getenv("AGENT_B_QWEN3_VOICE", "Ethan")
 AGENT_C_QWEN3_VOICE = os.getenv("AGENT_C_QWEN3_VOICE", "Miles")
 AGENT_D_QWEN3_VOICE = os.getenv("AGENT_D_QWEN3_VOICE", "Leo")
+CHAIRMAN_QWEN3_VOICE = os.getenv("CHAIRMAN_QWEN3_VOICE", "Axel")
 
 HOST       = os.getenv("HOST", "127.0.0.1")
 PORT       = int(os.getenv("PORT", "8765"))
@@ -343,6 +350,20 @@ DEFAULT_AGENTS = [
         "provider": None, "api_key": None, "model": None,
         "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
     },
+    {
+        "id": "chairman", "name": "Nexus", "color": "cyan",
+        "role": "chairman",
+        "personality": (
+            "Your name is Nexus. You are the Chairman of this council. "
+            "You do NOT participate in the debate. You speak only at the end. "
+            "Your job is to synthesize the entire deliberation into a clear, "
+            "structured final verdict. You are authoritative, fair, and precise. "
+            "You credit good ideas by name and note where disagreements remain."
+        ),
+        "mood": "authoritative",
+        "provider": None, "api_key": None, "model": None,
+        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
+    },
 ]
 
 KOKORO_VOICE_MAP = {
@@ -350,18 +371,21 @@ KOKORO_VOICE_MAP = {
     "agent_b": AGENT_B_KOKORO_VOICE,
     "agent_c": AGENT_C_KOKORO_VOICE,
     "agent_d": AGENT_D_KOKORO_VOICE,
+    "chairman": CHAIRMAN_KOKORO_VOICE,
 }
 EL_VOICE_MAP = {
     "agent_a": AGENT_A_VOICE_ID,
     "agent_b": AGENT_B_VOICE_ID,
     "agent_c": AGENT_C_VOICE_ID,
     "agent_d": AGENT_D_VOICE_ID,
+    "chairman": CHAIRMAN_VOICE_ID,
 }
 QWEN3_VOICE_MAP = {
     "agent_a": AGENT_A_QWEN3_VOICE,
     "agent_b": AGENT_B_QWEN3_VOICE,
     "agent_c": AGENT_C_QWEN3_VOICE,
     "agent_d": AGENT_D_QWEN3_VOICE,
+    "chairman": CHAIRMAN_QWEN3_VOICE,
 }
 
 ROLE_SNIPPETS = {
@@ -369,8 +393,10 @@ ROLE_SNIPPETS = {
     "creative":    "Challenge assumptions, propose unexpected angles, think laterally.",
     "skeptic":     "Poke holes, demand evidence, play devil's advocate constructively.",
     "synthesizer": "Find common ground, integrate perspectives, propose unified frameworks.",
+    "chairman":    "Synthesize the full deliberation. Be authoritative, fair, and structured.",
     "strategic":   "Think about second-order effects and actionable next steps.",
     "integrative": "Bridge disagreements, see patterns, summarize progress.",
+    "authoritative": "Be precise, structured, and decisive in your synthesis.",
 }
 
 def build_personality(agent_cfg: dict) -> str:
@@ -526,6 +552,45 @@ def extract_proposals(text):
                 proposals.append(proposal)
     return proposals
 
+async def collect_votes(agents, proposal_text, proposal_idx, messages, problem, call_llm_fn):
+    """Ask each agent to silently vote on a proposal. Returns dict of votes."""
+    votes = {}  # agent_id -> "agree" | "disagree" | "amend"
+
+    async def get_vote(agent):
+        prompt = (
+            f"A proposal has been made in the council deliberation on: \"{problem}\"\n\n"
+            f"PROPOSAL: \"{proposal_text}\"\n\n"
+            f"You are {agent['name']} ({agent['role']}). "
+            f"Based on the discussion so far, do you AGREE, DISAGREE, or want to AMEND this proposal?\n"
+            f"Respond with EXACTLY one word: AGREE, DISAGREE, or AMEND. Nothing else."
+        )
+        try:
+            personality = build_personality(agent)
+            response = await call_llm_fn(
+                agent["provider"], agent["api_key"], agent["model"],
+                [{"role": "user", "content": prompt}],
+                personality,
+            )
+            word = response.strip().upper().split()[0] if response.strip() else "AGREE"
+            if "DISAGREE" in word:
+                return "disagree"
+            elif "AMEND" in word:
+                return "amend"
+            else:
+                return "agree"
+        except Exception:
+            return "agree"  # default on error
+
+    tasks = []
+    for agent in agents:
+        if agent.get("role") != "chairman":  # chairman doesn't vote
+            tasks.append((agent["id"], get_vote(agent)))
+
+    for agent_id, coro in tasks:
+        votes[agent_id] = await coro
+
+    return votes
+
 # ── TTS ─────────────────────────────────────────────────────
 
 async def generate_tts(text: str, voice_id: str, retries: int = 2) -> bytes | None:
@@ -641,12 +706,15 @@ async def websocket_endpoint(ws: WebSocket):
         problem     = start_msg.get("topic", "How to reduce meeting fatigue in remote teams")
         total_turns = min(max(int(start_msg.get("turns", TOTAL_TURNS)), 6), 40)
 
-        # Build agent roster
+        # Build agent roster (4 debaters + chairman)
         requested = start_msg.get("agents", None)
-        num_agents = len(requested) if requested else 4
-        num_agents = max(2, min(4, num_agents))
+        num_agents = 4  # always 4 debaters
 
-        agents = []
+        all_providers = [AGENT_A_PROVIDER, AGENT_B_PROVIDER, AGENT_C_PROVIDER, AGENT_D_PROVIDER, CHAIRMAN_PROVIDER]
+        all_keys      = [AGENT_A_API_KEY,  AGENT_B_API_KEY,  AGENT_C_API_KEY,  AGENT_D_API_KEY,  CHAIRMAN_API_KEY]
+        all_models    = [AGENT_A_MODEL,    AGENT_B_MODEL,    AGENT_C_MODEL,    AGENT_D_MODEL,    CHAIRMAN_MODEL]
+
+        agents = []  # debaters only (first 4)
         for i in range(num_agents):
             base = dict(DEFAULT_AGENTS[i])
             if requested and i < len(requested):
@@ -655,17 +723,29 @@ async def websocket_endpoint(ws: WebSocket):
                 if req.get("mood"):        base["mood"]        = req["mood"]
                 if req.get("role"):        base["role"]        = req["role"]
                 if req.get("personality"): base["personality"] = req["personality"]
-            base["provider"] = [AGENT_A_PROVIDER, AGENT_B_PROVIDER, AGENT_C_PROVIDER, AGENT_D_PROVIDER][i]
-            base["api_key"]  = [AGENT_A_API_KEY,  AGENT_B_API_KEY,  AGENT_C_API_KEY,  AGENT_D_API_KEY][i]
-            base["model"]    = [AGENT_A_MODEL,     AGENT_B_MODEL,     AGENT_C_MODEL,     AGENT_D_MODEL][i]
+            base["provider"] = all_providers[i]
+            base["api_key"]  = all_keys[i]
+            base["model"]    = all_models[i]
             aid = base["id"]
             base["voice_kokoro"] = KOKORO_VOICE_MAP.get(aid, "am_michael")
             base["voice_el"]     = EL_VOICE_MAP.get(aid, AGENT_A_VOICE_ID)
             base["voice_qwen3"]  = QWEN3_VOICE_MAP.get(aid, "Ryan")
             agents.append(base)
 
+        # Chairman agent (5th, only speaks at the end)
+        chairman = dict(DEFAULT_AGENTS[4])  # Nexus
+        chairman["provider"] = CHAIRMAN_PROVIDER
+        chairman["api_key"]  = CHAIRMAN_API_KEY
+        chairman["model"]    = CHAIRMAN_MODEL
+        chairman["voice_kokoro"] = KOKORO_VOICE_MAP.get("chairman", "am_echo")
+        chairman["voice_el"]     = EL_VOICE_MAP.get("chairman", AGENT_A_VOICE_ID)
+        chairman["voice_qwen3"]  = QWEN3_VOICE_MAP.get("chairman", "Axel")
+
+        all_agents = agents + [chairman]  # for roster display
+
         messages  = []  # conversation history
-        proposals = []  # accumulated proposals
+        proposals = []  # accumulated proposal text strings
+        proposal_records = []  # structured: [{text, author, turn, votes}]
 
         def get_phase(turn):
             pct = turn / total_turns
@@ -727,6 +807,20 @@ async def websocket_endpoint(ws: WebSocket):
             new_proposals = extract_proposals(response)
             proposals.extend(new_proposals)
 
+            # Collect votes on new proposals (silent — agents don't speak, just vote)
+            new_proposal_records = []
+            for prop_text in new_proposals:
+                votes = await collect_votes(agents, prop_text, len(proposal_records), messages, problem, call_llm)
+                record = {
+                    "text": prop_text,
+                    "author": agent_name,
+                    "author_id": agent_id,
+                    "turn": turn,
+                    "votes": votes,  # {agent_id: "agree"|"disagree"|"amend"}
+                }
+                proposal_records.append(record)
+                new_proposal_records.append(record)
+
             # Clean response for display (remove PROPOSAL: prefix lines for chat display)
             spoken_text = re.sub(r'^\s*PROPOSAL:\s*', '', response, flags=re.MULTILINE).strip()
 
@@ -754,10 +848,15 @@ async def websocket_endpoint(ws: WebSocket):
                     "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
                     "protocol_message": protocol_msg,
                     "proposals": proposals.copy(),
+                    "proposal_records": [
+                        {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                        for r in proposal_records
+                    ],
                     "new_proposals": new_proposals,
+                    "new_proposal_records": new_proposal_records,
                     "consensus": consensus,
                     "num_agents": len(agents),
-                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "role": a["role"], "mood": a.get("mood", "")} for a in agents],
+                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "role": a["role"], "mood": a.get("mood", "")} for a in all_agents],
                 },
                 "turn": turn,
             }
@@ -816,9 +915,102 @@ async def websocket_endpoint(ws: WebSocket):
             except asyncio.TimeoutError:
                 pass
 
+        # ── Chairman synthesis ──────────────────────────────────────
+        # Nexus (the Chairman) sees the full deliberation and produces
+        # a structured final verdict with TTS.
+
+        await ws.send_json({"type": "thinking", "agent": "chairman", "turn": total_turns, "phase": "synthesis"})
+
+        # Build the full transcript for the chairman
+        transcript_lines = []
+        for m in messages:
+            speaker = next((a["name"] for a in agents if a["id"] == m["agent_id"]), m["agent_id"])
+            transcript_lines.append(f"{speaker} [{m['phase']}]: {m['content']}")
+        transcript = "\n".join(transcript_lines)
+
+        # Build proposal summary with votes
+        prop_summary = ""
+        if proposal_records:
+            prop_lines = []
+            for i, rec in enumerate(proposal_records):
+                vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+                for v in rec["votes"].values():
+                    vote_counts[v] = vote_counts.get(v, 0) + 1
+                prop_lines.append(
+                    f"  Proposal {i+1} by {rec['author']}: \"{rec['text']}\" "
+                    f"— Votes: {vote_counts['agree']} agree, {vote_counts['disagree']} disagree, {vote_counts['amend']} amend"
+                )
+            prop_summary = "\nProposals and votes:\n" + "\n".join(prop_lines)
+
+        chairman_prompt = (
+            f"You are Nexus, the Chairman of this council. You have observed the entire deliberation.\n\n"
+            f"Problem: \"{problem}\"\n\n"
+            f"Full transcript:\n{transcript}\n"
+            f"{prop_summary}\n\n"
+            f"Produce a clear, structured FINAL VERDICT. Include:\n"
+            f"1. The problem as the council understood it (1 sentence)\n"
+            f"2. Key points of agreement\n"
+            f"3. Key points of disagreement\n"
+            f"4. The recommended solution (synthesize the best ideas)\n"
+            f"5. Remaining caveats or open questions\n\n"
+            f"Speak naturally as if delivering a verdict to the council. "
+            f"Credit specific council members by name where appropriate. "
+            f"Keep it to 4-6 sentences total. No markdown, no lists, no asterisks."
+        )
+
+        try:
+            chairman_response = await call_llm(
+                chairman["provider"], chairman["api_key"], chairman["model"],
+                [{"role": "user", "content": chairman_prompt}],
+                build_personality(chairman),
+            )
+
+            # Generate TTS for chairman
+            chairman_audio_b64 = None
+            if TTS_ENABLED:
+                if EFFECTIVE_TTS == "kokoro":
+                    ch_voice = chairman["voice_kokoro"]
+                elif EFFECTIVE_TTS == "qwen3":
+                    ch_voice = chairman["voice_qwen3"]
+                else:
+                    ch_voice = chairman["voice_el"]
+                tts_text = clean_for_tts(chairman_response)
+                if tts_text:
+                    audio_bytes = await generate_tts(tts_text, ch_voice)
+                    if audio_bytes:
+                        chairman_audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+            await ws.send_json({
+                "type": "chairman",
+                "agent": "chairman",
+                "agent_name": chairman["name"],
+                "agent_color": chairman["color"],
+                "agent_role": chairman["role"],
+                "text": chairman_response,
+                "audio": chairman_audio_b64,
+                "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
+                "proposal_records": [
+                    {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                    for r in proposal_records
+                ],
+            })
+
+            # Wait for client to finish playing chairman audio
+            try:
+                await asyncio.wait_for(ws.receive_json(), timeout=120.0)
+            except asyncio.TimeoutError:
+                pass
+
+        except Exception as e:
+            print(f"  [Chairman] Synthesis failed: {e}")
+
         await ws.send_json({
             "type": "complete",
             "proposals": proposals,
+            "proposal_records": [
+                {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                for r in proposal_records
+            ],
             "total_turns": len(messages),
             "consensus": 100,
         })
@@ -851,6 +1043,7 @@ if __name__ == "__main__":
     c.print(f"  [green]✓[/green] Lyra  (creative):    [bold]{AGENT_B_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_B_PROVIDER})")
     c.print(f"  [green]✓[/green] Kael  (skeptic):     [bold]{AGENT_C_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_C_PROVIDER})")
     c.print(f"  [green]✓[/green] Iris  (synthesizer): [bold]{AGENT_D_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_D_PROVIDER})")
+    c.print(f"  [cyan]◈[/cyan] Nexus (chairman):    [bold]{CHAIRMAN_MODEL.split('/')[-1].split(':')[0]}[/bold] ({CHAIRMAN_PROVIDER})")
 
     if EFFECTIVE_TTS == "elevenlabs":
         tts_label = f"ElevenLabs  voices={AGENT_A_VOICE_ID[:8]}... / {AGENT_B_VOICE_ID[:8]}..."

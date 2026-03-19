@@ -418,6 +418,7 @@ def _configure_elevenlabs():
     voice_b = ask("  Sam   (Agent B) voice ID", default="pNInz6obpgDQGcFmaJgB")
     voice_c = ask("  Jordan(Agent C) voice ID", default="21m00Tcm4TlvDq8ikWAM")
     voice_d = ask("  Riley (Agent D) voice ID", default="pNInz6obpgDQGcFmaJgB")
+    voice_ch = ask("  Nexus (Chairman) voice ID", default="21m00Tcm4TlvDq8ikWAM")
     return {
         "provider":    "elevenlabs",
         "api_key":     api_key,
@@ -425,6 +426,7 @@ def _configure_elevenlabs():
         "voice_b":     voice_b,
         "voice_c":     voice_c,
         "voice_d":     voice_d,
+        "voice_ch":    voice_ch,
         "model":       "eleven_flash_v2_5",
     }
 
@@ -457,6 +459,7 @@ def _configure_qwen3():
     voice_b = pick_speaker("Sam   (Agent B)", "Ethan")
     voice_c = pick_speaker("Jordan(Agent C)", "Miles")
     voice_d = pick_speaker("Riley (Agent D)", "Leo")
+    voice_ch = pick_speaker("Nexus (Chairman)", "Axel")
 
     port = ask("  TTS server port", default="7861")
     return {
@@ -465,6 +468,7 @@ def _configure_qwen3():
         "voice_b":  voice_b,
         "voice_c":  voice_c,
         "voice_d":  voice_d,
+        "voice_ch": voice_ch,
         "port":     port,
     }
 
@@ -496,6 +500,7 @@ def _configure_kokoro():
     voice_b = pick_voice("Sam   (Agent B)", "bm_george")
     voice_c = pick_voice("Jordan(Agent C)", "am_adam")
     voice_d = pick_voice("Riley (Agent D)", "bm_lewis")
+    voice_ch = pick_voice("Nexus (Chairman)", "am_echo")
     port = ask("  TTS server port", default="7862")
     return {
         "provider": "kokoro",
@@ -503,17 +508,19 @@ def _configure_kokoro():
         "voice_b":  voice_b,
         "voice_c":  voice_c,
         "voice_d":  voice_d,
+        "voice_ch": voice_ch,
         "port":     port,
     }
 
 
 # ── Write .env ───────────────────────────────────────────────
 
-def write_env(agent_a, agent_b, agent_c, agent_d, tts):
+def write_env(agent_a, agent_b, agent_c, agent_d, chairman, tts):
     a_provider, a_key, a_model = agent_a
     b_provider, b_key, b_model = agent_b
     c_provider, c_key, c_model = agent_c
     d_provider, d_key, d_model = agent_d
+    ch_provider, ch_key, ch_model = chairman
     p = tts.get("provider", "none")
 
     # Build TTS block depending on provider
@@ -525,7 +532,8 @@ ELEVENLABS_MODEL={tts["model"]}
 AGENT_A_VOICE_ID={tts["voice_a"]}
 AGENT_B_VOICE_ID={tts["voice_b"]}
 AGENT_C_VOICE_ID={tts.get("voice_c", tts["voice_a"])}
-AGENT_D_VOICE_ID={tts.get("voice_d", tts["voice_b"])}"""
+AGENT_D_VOICE_ID={tts.get("voice_d", tts["voice_b"])}
+CHAIRMAN_VOICE_ID={tts.get("voice_ch", tts["voice_a"])}"""
     elif p == "kokoro":
         tts_block = f"""# ── TTS: Kokoro local ───────────────────────────────────────
 TTS_PROVIDER=kokoro
@@ -533,7 +541,8 @@ KOKORO_TTS_URL=http://localhost:{tts["port"]}
 AGENT_A_KOKORO_VOICE={tts["voice_a"]}
 AGENT_B_KOKORO_VOICE={tts["voice_b"]}
 AGENT_C_KOKORO_VOICE={tts.get("voice_c", "am_adam")}
-AGENT_D_KOKORO_VOICE={tts.get("voice_d", "bm_lewis")}"""
+AGENT_D_KOKORO_VOICE={tts.get("voice_d", "bm_lewis")}
+CHAIRMAN_KOKORO_VOICE={tts.get("voice_ch", "am_echo")}"""
     elif p == "qwen3":
         tts_block = f"""# ── TTS: Qwen3-TTS local ────────────────────────────────────
 TTS_PROVIDER=qwen3
@@ -541,7 +550,8 @@ QWEN3_TTS_URL=http://localhost:{tts["port"]}
 AGENT_A_QWEN3_VOICE={tts["voice_a"]}
 AGENT_B_QWEN3_VOICE={tts["voice_b"]}
 AGENT_C_QWEN3_VOICE={tts.get("voice_c", "Miles")}
-AGENT_D_QWEN3_VOICE={tts.get("voice_d", "Leo")}"""
+AGENT_D_QWEN3_VOICE={tts.get("voice_d", "Leo")}
+CHAIRMAN_QWEN3_VOICE={tts.get("voice_ch", "Axel")}"""
     else:
         tts_block = "# ── TTS: disabled ──────────────────────────────────────────\nTTS_PROVIDER=none"
 
@@ -567,6 +577,11 @@ AGENT_C_MODEL={c_model}
 AGENT_D_PROVIDER={d_provider}
 AGENT_D_API_KEY={d_key}
 AGENT_D_MODEL={d_model}
+
+# ── Chairman (Nexus) ─────────────────────────────────────────
+CHAIRMAN_PROVIDER={ch_provider}
+CHAIRMAN_API_KEY={ch_key}
+CHAIRMAN_MODEL={ch_model}
 {tts_block}
 
 # ── Server ───────────────────────────────────────────────────
@@ -648,6 +663,18 @@ def main():
         paid_models=paid_models,
     )
 
+    print(bold(f"\n{'─'*50}"))
+    print(bold("  ◈ Chairman — Nexus (synthesizes the final verdict)"))
+    print(f"{'─'*50}")
+
+    chairman = configure_agent(
+        "Chairman — Nexus",
+        default_provider="openrouter",
+        default_model="deepseek/deepseek-chat-v3-0324:free",
+        free_models=free_models,
+        paid_models=paid_models,
+    )
+
     tts = configure_tts()
 
     # Install TTS deps right after selection so errors surface before .env is written
@@ -656,7 +683,7 @@ def main():
     elif tts.get("provider") == "qwen3":
         install_qwen3_deps()
 
-    write_env(agent_a, agent_b, agent_c, agent_d, tts)
+    write_env(agent_a, agent_b, agent_c, agent_d, chairman, tts)
 
     print(bold("\n✅ Setup complete!\n"))
     print(f"  Run the server:  {cyan('python3 server.py')}")

@@ -229,6 +229,46 @@ body::after {
 .final-solution-header::before { content: '◈ '; }
 .final-solution-text { color: var(--text); line-height: 1.7; font-size: 12px; }
 
+/* Vote badges on proposals */
+.vote-row { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+.vote-badge {
+  font-size: 8px; padding: 1px 5px; border: 1px solid var(--border);
+  letter-spacing: 0.5px; display: inline-flex; align-items: center; gap: 3px;
+}
+.vote-badge.agree { border-color: rgba(52,211,153,0.3); color: var(--green); }
+.vote-badge.disagree { border-color: rgba(248,113,113,0.3); color: var(--red); }
+.vote-badge.amend { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
+
+/* Chairman verdict */
+.chairman-card {
+  margin: 12px 0; padding: 16px; align-self: stretch;
+  border: 1px solid rgba(34,211,238,0.3); background: rgba(34,211,238,0.04);
+  animation: fadeIn 0.5s;
+}
+.chairman-header {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+}
+.chairman-dot {
+  width: 8px; height: 8px; background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan); flex-shrink: 0;
+}
+.chairman-name {
+  font-size: 10px; font-weight: 600; color: var(--cyan);
+  letter-spacing: 1px; text-transform: uppercase;
+}
+.chairman-role { font-size: 9px; color: var(--text-dim); }
+.chairman-label {
+  font-size: 9px; padding: 1px 6px; border: 1px solid rgba(34,211,238,0.3);
+  color: var(--cyan); letter-spacing: 0.5px; margin-left: auto;
+}
+.chairman-text { color: var(--text); line-height: 1.8; font-size: 12px; }
+.chairman-audio-btn {
+  margin-top: 8px; padding: 2px 10px; background: none;
+  border: 1px solid var(--border); color: var(--text-dim);
+  font-size: 10px; cursor: pointer; font-family: var(--mono); letter-spacing: 0.5px;
+}
+.chairman-audio-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+
 @media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
 </style>
 </head>
@@ -241,8 +281,8 @@ const PHASE_LABELS = {problem:'DEFINE', debate:'DEBATE', converge:'CONVERGE', so
 const PHASE_ICONS  = {problem:'◇', debate:'◆', converge:'◈', solution:'▣'};
 const PHASE_COLORS = {problem:'#fbbf24', debate:'#ff6b3d', converge:'#c084fc', solution:'#34d399'};
 
-const AGENT_RAW_COLORS = {orange:'#ff6b3d', blue:'#3d8bff', green:'#34d399', magenta:'#c084fc'};
-const AGENT_CSS_COLORS = {orange:'var(--orange)', blue:'var(--blue)', green:'var(--green)', magenta:'var(--magenta)'};
+const AGENT_RAW_COLORS = {orange:'#ff6b3d', blue:'#3d8bff', green:'#34d399', magenta:'#c084fc', cyan:'#22d3ee'};
+const AGENT_CSS_COLORS = {orange:'var(--orange)', blue:'var(--blue)', green:'var(--green)', magenta:'var(--magenta)', cyan:'var(--cyan)'};
 
 const PROBLEM_CHIPS = [
   'how to reduce meeting fatigue in remote teams',
@@ -255,6 +295,7 @@ const PROBLEM_CHIPS = [
 
 let state = {
   screen:'setup', ws:null, config:{}, messages:[], proposals:[],
+  proposalRecords:[], chairmanVerdict:null,
   phase:'problem', turn:0, totalTurns:20, consensus:0,
   thinking:null, lastProtocol:null, showJson:false,
   audioData:{}, stopped:false, topic:'', agentRoster:null,
@@ -332,6 +373,7 @@ function connect(topic, turns) {
       state.messages.push(data);
       if (data.audio) state.audioData[data.turn] = {b64: data.audio, format: data.audio_format || 'mp3'};
       if (data.proposals) state.proposals = data.proposals;
+      if (data.proposal_records) state.proposalRecords = data.proposal_records;
       if (data.agent_roster && !state.agentRoster) state.agentRoster = data.agent_roster;
       state.lastProtocol = data.protocol_message;
       state.phase = data.phase;
@@ -340,13 +382,33 @@ function connect(topic, turns) {
       render(); scrollChat();
 
       // Ack IMMEDIATELY so the server can start generating the next turn
-      // while we play this turn's audio. This is what makes the conversation
-      // feel natural — LLM generation overlaps with audio playback.
       if (!state.stopped && ws.readyState === 1) {
         ws.send(JSON.stringify({type:'ack'}));
       }
 
-      // Queue audio playback in the background (doesn't block the pipeline)
+      // Queue audio playback in the background
+      if (data.audio) {
+        audioQueue = audioQueue.then(async () => {
+          if (!state.stopped) {
+            try { await playAudioB64(data.audio, data.audio_format); } catch(e) { console.warn('Audio error:', e); }
+          }
+        }).catch(e => { console.warn('Audio queue error:', e); });
+      }
+    }
+
+    if (data.type === 'chairman') {
+      state.thinking = null;
+      state.chairmanVerdict = data;
+      if (data.proposal_records) state.proposalRecords = data.proposal_records;
+      if (data.audio) state.audioData['chairman'] = {b64: data.audio, format: data.audio_format || 'mp3'};
+      render(); scrollChat();
+
+      // Ack immediately
+      if (!state.stopped && ws.readyState === 1) {
+        ws.send(JSON.stringify({type:'ack'}));
+      }
+
+      // Queue chairman audio
       if (data.audio) {
         audioQueue = audioQueue.then(async () => {
           if (!state.stopped) {
@@ -429,6 +491,8 @@ function startConversation() {
   state.totalTurns = turns;
   state.messages = [];
   state.proposals = [];
+  state.proposalRecords = [];
+  state.chairmanVerdict = null;
   state.phase = 'problem';
   state.turn = 0;
   state.consensus = 0;
@@ -450,7 +514,8 @@ function stopConversation() {
 function resetApp() {
   state = {
     screen:'setup', ws:null, config:state.config,
-    messages:[], proposals:[], phase:'problem', turn:0, totalTurns:16,
+    messages:[], proposals:[], proposalRecords:[], chairmanVerdict:null,
+    phase:'problem', turn:0, totalTurns:16,
     consensus:0, thinking:null, lastProtocol:null, showJson:false,
     audioData:{}, stopped:false, topic:'', agentRoster:null,
   };
@@ -460,7 +525,9 @@ function resetApp() {
 function exportTranscript() {
   const data = {
     topic: state.topic, turns: state.messages.length,
-    proposals: state.proposals, consensus: state.consensus,
+    proposals: state.proposalRecords,
+    consensus: state.consensus,
+    chairman_verdict: state.chairmanVerdict ? state.chairmanVerdict.text : null,
     messages: state.messages.filter(m => m.type !== 'error').map(m => ({
       agent: m.agent_name, role: m.agent_role, phase: m.phase,
       turn: m.turn, text: m.text, consensus: m.consensus,
@@ -531,16 +598,40 @@ function renderMsg(m, idx) {
 
 function renderThinking() {
   if (!state.thinking) return '';
+  if (state.thinking === 'chairman') {
+    return `<div class="thinking"><span class="thinking-dots"><span>▪</span><span>▪</span><span>▪</span></span> nexus is preparing the final verdict</div>`;
+  }
   const roster = state.agentRoster;
   const agent = roster ? roster.find(a => a.id === state.thinking) : null;
   const name = agent ? agent.name.toLowerCase() : 'agent';
   return `<div class="thinking"><span class="thinking-dots"><span>▪</span><span>▪</span><span>▪</span></span> ${name} is deliberating</div>`;
 }
 
+function renderChairmanVerdict() {
+  const v = state.chairmanVerdict;
+  if (!v) return '';
+  const hasAudio = state.audioData['chairman'];
+  return `<div class="chairman-card">
+    <div class="chairman-header">
+      <div class="chairman-dot"></div>
+      <span class="chairman-name">◈ ${esc(v.agent_name || 'Nexus')}</span>
+      <span class="chairman-role">${esc(v.agent_role || 'chairman')}</span>
+      <span class="chairman-label">FINAL VERDICT</span>
+    </div>
+    <div class="chairman-text">${esc(v.text)}</div>
+    ${hasAudio ? `<button class="chairman-audio-btn" onclick="replayChairmanAudio()">[ replay verdict ]</button>` : ''}
+  </div>`;
+}
+
+async function replayChairmanAudio() {
+  const ad = state.audioData['chairman'];
+  if (ad) { try { await playAudioB64(ad.b64, ad.format); } catch(e) { console.warn(e); } }
+}
+
 function renderMain(app) {
   app.className = 'app';
   const cfg = state.config;
-  const proposalCount = state.proposals.length;
+  const proposalCount = state.proposalRecords.length;
   const roster = state.agentRoster || cfg.default_agents || [];
   const ttsLabel = cfg.tts_provider && cfg.tts_provider !== 'none' ? `tts:${cfg.tts_provider}...` : '';
 
@@ -566,6 +657,7 @@ function renderMain(app) {
       <div class="chat-col">
         <div class="chat-scroll" id="chat-scroll">
           ${state.messages.map((m,i) => renderMsg(m,i)).join('')}
+          ${state.chairmanVerdict ? renderChairmanVerdict() : ''}
           ${state.thinking ? renderThinking() : ''}
           ${state.screen === 'complete' ? `
             <div class="final-solution">
@@ -613,13 +705,20 @@ function renderMain(app) {
           <div class="side-title">proposals [${proposalCount}]</div>
         </div>
         <div class="proposals-scroll">
-          ${proposalCount === 0
+          ${state.proposalRecords.length === 0
             ? '<div class="proposal-empty">awaiting convergence phase...</div>'
-            : state.proposals.map((p, i) => `
-              <div class="proposal-entry">
-                <div class="proposal-text">${esc(p)}</div>
-              </div>
-            `).join('')}
+            : state.proposalRecords.map((p, i) => {
+                const voteHtml = p.votes ? Object.entries(p.votes).map(([aid, vote]) => {
+                  const agent = (state.agentRoster || []).find(a => a.id === aid);
+                  const name = agent ? agent.name : aid;
+                  return `<span class="vote-badge ${vote}">${name.toLowerCase()}: ${vote}</span>`;
+                }).join('') : '';
+                return `<div class="proposal-entry">
+                  <div class="proposal-author">◉ ${esc(p.author || '')} — t${(p.turn||0) + 1}</div>
+                  <div class="proposal-text">${esc(p.text)}</div>
+                  ${voteHtml ? `<div class="vote-row">${voteHtml}</div>` : ''}
+                </div>`;
+              }).join('')}
         </div>
         <div class="json-toggle">
           <button class="btn" style="width:100%;font-size:10px;letter-spacing:1px" onclick="toggleJson()">${state.showJson?'[ hide json ]':'[ show json ]'}</button>
