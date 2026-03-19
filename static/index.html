@@ -265,21 +265,23 @@ let audioQueue = Promise.resolve();
 let currentSource = null;
 
 async function playAudioB64(b64, format) {
-  if (audioCtx.state === 'suspended') await audioCtx.resume();
-  const raw = atob(b64);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
   try {
+    if (audioCtx.state === 'suspended') await audioCtx.resume();
+    const raw = atob(b64);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
     const buffer = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
     return new Promise(resolve => {
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(audioCtx.destination);
       currentSource = source;
-      source.onended = () => { currentSource = null; resolve(); };
+      // Safety timeout: resolve even if onended never fires (e.g. tab backgrounded)
+      const timeout = setTimeout(() => { currentSource = null; resolve(); }, (buffer.duration * 1000) + 3000);
+      source.onended = () => { clearTimeout(timeout); currentSource = null; resolve(); };
       source.start();
     });
-  } catch(e) { console.warn('Audio decode failed:', e); }
+  } catch(e) { console.warn('Audio playback failed:', e); }
 }
 
 // ── TTS health poll ──
@@ -337,15 +339,21 @@ function connect(topic, turns) {
       state.consensus = data.consensus || state.consensus;
       render(); scrollChat();
 
-      // Queue audio then ack
-      audioQueue = audioQueue.then(async () => {
-        if (!state.stopped && data.audio) {
-          await playAudioB64(data.audio, data.audio_format);
-        }
-        if (!state.stopped && ws.readyState === 1) {
-          ws.send(JSON.stringify({type:'ack'}));
-        }
-      });
+      // Ack IMMEDIATELY so the server can start generating the next turn
+      // while we play this turn's audio. This is what makes the conversation
+      // feel natural — LLM generation overlaps with audio playback.
+      if (!state.stopped && ws.readyState === 1) {
+        ws.send(JSON.stringify({type:'ack'}));
+      }
+
+      // Queue audio playback in the background (doesn't block the pipeline)
+      if (data.audio) {
+        audioQueue = audioQueue.then(async () => {
+          if (!state.stopped) {
+            try { await playAudioB64(data.audio, data.audio_format); } catch(e) { console.warn('Audio error:', e); }
+          }
+        }).catch(e => { console.warn('Audio queue error:', e); });
+      }
     }
 
     if (data.type === 'complete') {
