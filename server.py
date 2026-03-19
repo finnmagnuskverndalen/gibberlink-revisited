@@ -427,6 +427,94 @@ def clean_for_tts(text: str) -> str:
     text = _re.sub(r"\n{2,}", " ", text)
     return text.strip()
 
+# ── Response sanitization & validation ───────────────────────
+
+# Patterns that indicate a broken/garbage LLM response
+_GARBAGE_PATTERNS = [
+    _re.compile(r'S\d+assistant', _re.IGNORECASE),        # leaked classifier labels
+    _re.compile(r'^(safe|unsafe)\s*$', _re.MULTILINE),     # safety labels
+    _re.compile(r'(safe\n){3,}', _re.IGNORECASE),          # repeated safe/unsafe
+    _re.compile(r'(unsafe\n){2,}', _re.IGNORECASE),
+    _re.compile(r'</?[a-z]+>'),                              # HTML tags
+    _re.compile(r'\[INST\]|\[/INST\]|<<SYS>>|<\|im_'),     # leaked prompt tokens
+    _re.compile(r'(Phase|Stimulus|Cycle).*will now', _re.IGNORECASE),  # meta-narration
+]
+
+def sanitize_response(text: str, agent_name: str, other_names: list[str]) -> str:
+    """Clean up a raw LLM response, stripping common garbage patterns."""
+    # Strip lines that are just "safe" / "unsafe" / classifier labels
+    lines = text.split("\n")
+    clean_lines = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip empty lines, pure classifier labels, leaked tokens
+        if not stripped:
+            continue
+        if stripped.lower() in ("safe", "unsafe"):
+            continue
+        if _re.match(r'^S\d+assistant$', stripped, _re.IGNORECASE):
+            continue
+        # Skip lines where the agent writes dialogue for OTHER agents
+        # e.g. "Voss: I think..." when the agent is not Voss
+        is_other_dialogue = False
+        for other in other_names:
+            if stripped.startswith(f"{other}:") or stripped.startswith(f"{other},"):
+                # Only strip if it looks like attributed dialogue, not a natural address
+                if _re.match(rf'^{_re.escape(other)}:\s', stripped):
+                    is_other_dialogue = True
+                    break
+        if is_other_dialogue:
+            continue
+        # Skip HTML tags
+        if _re.match(r'^<[^>]+>$', stripped):
+            continue
+        clean_lines.append(line)
+
+    result = "\n".join(clean_lines).strip()
+
+    # If sanitization removed everything, return a minimal fallback
+    if not result or len(result) < 5:
+        return ""
+
+    # Truncate excessively long responses (should be 1-3 sentences)
+    if len(result) > 800:
+        # Find the last sentence boundary before 800 chars
+        for i in range(min(800, len(result)), 200, -1):
+            if result[i] in '.!?':
+                result = result[:i+1]
+                break
+        else:
+            result = result[:800]
+
+    return result
+
+def is_response_broken(text: str, agent_name: str) -> bool:
+    """Check if a response looks like garbage from a misbehaving model."""
+    if not text or len(text.strip()) < 5:
+        return True
+
+    # Check for known garbage patterns
+    for pattern in _GARBAGE_PATTERNS:
+        if pattern.search(text):
+            return True
+
+    # Too many newlines relative to content (repetitive single-word lines)
+    lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
+    if len(lines) > 8:
+        # More than 8 lines for a 1-3 sentence response is suspicious
+        avg_len = sum(len(l) for l in lines) / len(lines)
+        if avg_len < 10:  # average line under 10 chars = gibberish
+            return True
+
+    # Response contains the agent speaking as multiple characters
+    # (hallucinating an entire conversation)
+    colon_speakers = _re.findall(r'^([A-Z][a-z]+):', text, _re.MULTILINE)
+    unique_speakers = set(colon_speakers)
+    if len(unique_speakers) >= 3:
+        return True
+
+    return False
+
 # ── Council system prompts ───────────────────────────────────
 
 def get_system_prompt(agent_name, other_names, phase, proposals, problem, personality):
@@ -435,12 +523,17 @@ def get_system_prompt(agent_name, other_names, phase, proposals, problem, person
     others = ", ".join(other_names)
     base = (
         f"{personality}\n\n"
-        f"You are in a council deliberation with {others}. "
+        f"You are {agent_name} in a council deliberation with {others}. "
         f"Problem: \"{problem}\". "
         f"Respond with 1-3 short spoken sentences. "
         f"You may address specific council members by name. "
         f"No markdown, no asterisks, no parentheses for actions, no lists, no emojis. "
-        f"Write exactly what you would say out loud in a meeting."
+        f"Write exactly what you would say out loud in a meeting.\n\n"
+        f"CRITICAL RULES:\n"
+        f"- You are ONLY {agent_name}. Never write dialogue for other agents.\n"
+        f"- Never write lines like 'Voss: ...' or 'Lyra: ...' — only speak as yourself.\n"
+        f"- Never output classification labels, system tokens, or meta-commentary.\n"
+        f"- Just speak your piece naturally, as {agent_name}, and stop."
     )
 
     if phase == PHASE_PROBLEM:
@@ -802,6 +895,34 @@ async def websocket_endpoint(ws: WebSocket):
 
             system_prompt = get_system_prompt(agent_name, others, phase, proposals, problem, personality)
             response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt)
+
+            # ── Sanitize and validate response ──
+            response = sanitize_response(response, agent_name, others)
+
+            if is_response_broken(response, agent_name):
+                # Retry once with a much stricter prompt
+                print(f"  [SANITIZE] Broken response from {agent_name} (turn {turn}), retrying...")
+                strict_prompt = (
+                    f"You are {agent_name}. Respond to the council discussion with 1-2 sentences about: \"{problem}\". "
+                    f"Speak ONLY as {agent_name}. Do not write dialogue for anyone else. "
+                    f"Just give your opinion in plain English. Nothing else."
+                )
+                try:
+                    response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, strict_prompt)
+                    response = sanitize_response(response, agent_name, others)
+                except Exception:
+                    pass
+
+                # If still broken after retry, use a graceful fallback
+                if is_response_broken(response, agent_name):
+                    print(f"  [SANITIZE] Retry also broken for {agent_name}, using fallback")
+                    fallback_phrases = {
+                        PHASE_PROBLEM: f"I think the core issue here is understanding the real constraints before we jump to solutions.",
+                        PHASE_DEBATE: f"I hear what the others are saying, but I think we need to consider the practical implications more carefully.",
+                        PHASE_CONVERGE: f"We seem to be making progress. I can see elements of a workable solution forming from what's been said.",
+                        PHASE_SOLUTION: f"I think we've landed on a reasonable approach. Let's move forward with what we've agreed on.",
+                    }
+                    response = fallback_phrases.get(phase, "I need a moment to gather my thoughts on this.")
 
             # Extract any proposals
             new_proposals = extract_proposals(response)
