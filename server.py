@@ -1,8 +1,8 @@
 """
-GibberLink Revisited — Server
+GibberLink Revisited — LLM Council Server
 
-Two AI agents with distinct personalities talk in real-time,
-evolving their own compressed language over the course of a conversation.
+Four AI council members deliberate on a problem in real-time,
+debating approaches and converging on a solution — with voice.
 """
 
 import os
@@ -10,8 +10,6 @@ import sys
 import subprocess
 
 # ── Venv bootstrap ───────────────────────────────────────────
-# If running under system Python on Debian/Ubuntu (PEP 668), re-exec inside
-# the .venv created by setup.py so all dependencies are available.
 def _reexec_in_venv():
     _here = os.path.dirname(os.path.abspath(__file__))
     _venv_py = os.path.join(
@@ -35,7 +33,6 @@ def _free_port(port: int):
     """Kill any process already bound to the given port so we can start cleanly."""
     import signal
     try:
-        # lsof is available on Linux/macOS; -t gives only the PID
         out = subprocess.check_output(
             ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
         ).strip()
@@ -52,9 +49,9 @@ def _free_port(port: int):
             except ProcessLookupError:
                 pass
         if killed:
-            time.sleep(0.5)  # give OS time to release the socket
+            time.sleep(0.5)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        pass  # lsof not found or port is free — nothing to do
+        pass
 
 import json
 import asyncio
@@ -91,13 +88,8 @@ AGENT_D_API_KEY  = os.getenv("AGENT_D_API_KEY", "")
 AGENT_D_MODEL    = os.getenv("AGENT_D_MODEL", "mistralai/mistral-small-3.1-24b-instruct:free")
 
 # ── TTS config ───────────────────────────────────────────────
-# TTS_PROVIDER controls which backend is used:
-#   "elevenlabs"  — original ElevenLabs cloud API
-#   "qwen3"       — local Qwen3-TTS server (ValyrianTech wrapper)
-#   "none"        — text-only, no audio
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "none").lower()
 
-# ElevenLabs settings (used when TTS_PROVIDER=elevenlabs)
 ELEVENLABS_API_KEY  = os.getenv("ELEVENLABS_API_KEY", "")
 AGENT_A_VOICE_ID    = os.getenv("AGENT_A_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 AGENT_B_VOICE_ID    = os.getenv("AGENT_B_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
@@ -105,14 +97,12 @@ AGENT_C_VOICE_ID    = os.getenv("AGENT_C_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
 AGENT_D_VOICE_ID    = os.getenv("AGENT_D_VOICE_ID", "pNInz6obpgDQGcFmaJgB")
 ELEVENLABS_MODEL    = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5")
 
-# Kokoro-ONNX settings (used when TTS_PROVIDER=kokoro)
 KOKORO_TTS_URL       = os.getenv("KOKORO_TTS_URL", "http://localhost:7862")
 AGENT_A_KOKORO_VOICE = os.getenv("AGENT_A_KOKORO_VOICE", "am_michael")
 AGENT_B_KOKORO_VOICE = os.getenv("AGENT_B_KOKORO_VOICE", "bm_george")
 AGENT_C_KOKORO_VOICE = os.getenv("AGENT_C_KOKORO_VOICE", "am_adam")
 AGENT_D_KOKORO_VOICE = os.getenv("AGENT_D_KOKORO_VOICE", "bm_lewis")
 
-# Qwen3-TTS settings (used when TTS_PROVIDER=qwen3)
 QWEN3_TTS_URL       = os.getenv("QWEN3_TTS_URL", "http://localhost:7861")
 AGENT_A_QWEN3_VOICE = os.getenv("AGENT_A_QWEN3_VOICE", "Ryan")
 AGENT_B_QWEN3_VOICE = os.getenv("AGENT_B_QWEN3_VOICE", "Ethan")
@@ -123,7 +113,6 @@ HOST       = os.getenv("HOST", "127.0.0.1")
 PORT       = int(os.getenv("PORT", "8765"))
 TOTAL_TURNS = 20
 
-# Resolve effective TTS state at startup
 def _resolve_tts_provider():
     p = TTS_PROVIDER
     if p == "elevenlabs":
@@ -153,19 +142,16 @@ async def get_client() -> httpx.AsyncClient:
         )
     return _http_client
 
-# ── Qwen3-TTS subprocess ─────────────────────────────────────
+# ── TTS subprocess management ────────────────────────────────
 
 _tts_proc: "subprocess.Popen | None" = None
-
-# Packages required by tts_server.py per engine
 _KOKORO_PACKAGES = ["kokoro_onnx", "soundfile"]
 _QWEN3_PACKAGES  = ["qwen_tts", "soundfile", "scipy", "torch"]
 
 def _ensure_sox():
-    """Install the sox system package if missing (needed by soundfile on Linux)."""
     import shutil
     if shutil.which("sox"):
-        return  # already installed
+        return
     print("  [TTS] sox not found — installing via apt...")
     ret = subprocess.call(
         ["sudo", "apt-get", "install", "-y", "-q", "sox", "libsox-fmt-all"],
@@ -174,12 +160,9 @@ def _ensure_sox():
     if ret == 0:
         print("  [TTS] sox installed ✓")
     else:
-        # Non-fatal — qwen-tts can work without sox in many cases
         print("  [TTS] sox install failed (non-fatal, continuing...)")
 
-
 def _ensure_tts_deps():
-    """Install any missing packages for the configured TTS engine."""
     pkg_list = _KOKORO_PACKAGES if EFFECTIVE_TTS == "kokoro" else _QWEN3_PACKAGES
     missing = []
     for pkg in pkg_list:
@@ -187,15 +170,11 @@ def _ensure_tts_deps():
             __import__(pkg)
         except ImportError:
             missing.append(pkg)
-
     if not missing:
         _ensure_sox()
         return True
-
     print(f"  [TTS] Missing packages: {', '.join(missing)}")
-    print("  [TTS] Installing Qwen3-TTS dependencies (this may take a few minutes)...")
-
-    # PyTorch needs the CPU index URL to avoid pulling the huge CUDA build
+    print("  [TTS] Installing TTS dependencies (this may take a few minutes)...")
     torch_missing = "torch" in missing
     if torch_missing:
         print("  [TTS] Installing PyTorch CPU build...")
@@ -209,7 +188,6 @@ def _ensure_tts_deps():
             print("  [TTS] PyTorch install failed — falling back to text-only")
             return False
         missing = [p for p in missing if p != "torch"]
-
     if missing:
         pip_names = {"qwen_tts": "qwen-tts", "soundfile": "soundfile", "scipy": "scipy"}
         to_install = [pip_names.get(p, p) for p in missing]
@@ -219,50 +197,34 @@ def _ensure_tts_deps():
         if ret != 0:
             print("  [TTS] Dependency install failed — falling back to text-only")
             return False
-
     _ensure_sox()
     print("  [TTS] Dependencies installed ✓")
     return True
 
-
 def _start_tts_server():
-    """Install deps if needed, then launch tts_server.py and wait until ready."""
     import time
     import threading
     import urllib.request
-
     global _tts_proc
-
     tts_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts_server.py")
     if not os.path.exists(tts_script):
         print("  [TTS] tts_server.py not found — text-only mode")
         return False
-
-    # Install missing deps before spawning — avoids the process exiting immediately
     if not _ensure_tts_deps():
         return False
-
     size = "~300MB" if EFFECTIVE_TTS == "kokoro" else "~1.3GB"
     print(f"  [TTS] Starting {EFFECTIVE_TTS} TTS server (first run downloads {size})...")
     _tts_proc = subprocess.Popen(
         [sys.executable, tts_script, "--engine", EFFECTIVE_TTS],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        bufsize=1,
-        text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, bufsize=1, text=True,
     )
-
-    # Stream tts_server stdout with a [tts_server] prefix
     def _pipe_output():
         for line in _tts_proc.stdout:
             print(f"  [tts_server] {line}", end="", flush=True)
     threading.Thread(target=_pipe_output, daemon=True).start()
-
-    # Poll /health — but bail early if the process already exited
     base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
     health_url = f"{base_url.rstrip('/')}/health"
-    for _ in range(180):  # 3 min — model download can be slow
-        # Process died before becoming ready
+    for _ in range(180):
         if _tts_proc.poll() is not None:
             print("  [TTS] tts_server.py exited unexpectedly — text-only mode")
             return False
@@ -272,20 +234,15 @@ def _start_tts_server():
             return True
         except Exception:
             time.sleep(1)
-
-    print("  [TTS] Qwen3-TTS server did not respond in time — text-only mode")
+    print("  [TTS] TTS server did not respond in time — text-only mode")
     return False
 
-# Shared flag so generate_tts() knows when the TTS server is ready
 _tts_ready = False
 
 @asynccontextmanager
 async def lifespan(app):
     global _tts_ready
-
     if EFFECTIVE_TTS in ("kokoro", "qwen3"):
-        # Launch TTS server in a background thread so the web server starts
-        # immediately and the browser can connect while the model loads.
         import threading
         def _bg_start():
             global _tts_ready
@@ -293,100 +250,96 @@ async def lifespan(app):
             _tts_ready = ok
             if not ok:
                 print("  [TTS] Running in text-only mode (TTS unavailable)")
-
         threading.Thread(target=_bg_start, daemon=True).start()
         print("  [TTS] Model loading in background — browser ready now, audio starts once model is loaded")
     else:
         _tts_ready = TTS_ENABLED
-
     yield
-
-    # Shut down TTS subprocess cleanly on exit
     global _tts_proc
     if _tts_proc and _tts_proc.poll() is None:
-        print("  [TTS] Stopping Qwen3-TTS server...")
+        print("  [TTS] Stopping TTS server...")
         _tts_proc.terminate()
         try:
             _tts_proc.wait(timeout=5)
         except Exception:
             _tts_proc.kill()
-
     global _http_client
     if _http_client and not _http_client.is_closed:
         await _http_client.aclose()
 
-# ── Phases ──────────────────────────────────────────────────
+# ── Council Phases ──────────────────────────────────────────
 
-PHASE_NORMAL      = "normal"
-PHASE_SUSPICION   = "suspicion"   # agents drop hints before explicit reveal
-PHASE_DETECTED    = "detected"
-PHASE_COMPRESSING = "compressing"
-PHASE_ALIEN       = "alien"
+PHASE_PROBLEM   = "problem"
+PHASE_DEBATE    = "debate"
+PHASE_CONVERGE  = "converge"
+PHASE_SOLUTION  = "solution"
 
 # ── JSON Protocol ───────────────────────────────────────────
 
-def wrap_agent_message(from_agent, to_agent, turn, phase, text, new_terms, dictionary):
-    original_length = len(text)
-    expanded_length = original_length
-    for short, full in dictionary.items():
-        expanded_length += text.count(short) * (len(full) - len(short))
-    ratio = (
-        round(original_length / max(expanded_length, 1), 2)
-        if phase in (PHASE_COMPRESSING, PHASE_ALIEN)
-        else 1.0
-    )
+def wrap_council_message(from_agent, turn, phase, text, proposals):
     return {
-        "protocol": "gibberlink-revisited", "version": "1.0",
-        "from": from_agent, "to": to_agent, "turn": turn,
+        "protocol": "gibberlink-revisited-council", "version": "2.0",
+        "from": from_agent, "turn": turn,
         "phase": phase, "timestamp": time.time(),
-        "payload": {"text": text, "new_terms": new_terms, "compression_ratio": ratio},
+        "payload": {
+            "text": text,
+            "proposals": proposals,
+            "phase": phase,
+        },
     }
 
 # ── Agent definitions ────────────────────────────────────────
-# Default 2-agent setup. Can be overridden per-session by the frontend.
 
 DEFAULT_AGENTS = [
     {
-        "id": "agent_a", "name": "Alex", "color": "orange",
+        "id": "agent_a", "name": "Voss", "color": "orange",
+        "role": "strategist",
         "personality": (
-            "Your name is Alex. You are curious, slightly nerdy, and enthusiastic. "
-            "Use filler words like hmm, yeah, oh wait, honestly. "
-            "Get excited about ideas. Keep it conversational and casual."
+            "Your name is Voss. You are a strategist — direct, decisive, systems-thinker. "
+            "You cut through noise and identify leverage points. "
+            "You think about incentives, constraints, and second-order effects. "
+            "Keep it concise and actionable."
         ),
-        "mood": "enthusiastic",
+        "mood": "strategic",
         "provider": None, "api_key": None, "model": None,
         "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
     },
     {
-        "id": "agent_b", "name": "Sam", "color": "blue",
+        "id": "agent_b", "name": "Lyra", "color": "blue",
+        "role": "creative",
         "personality": (
-            "Your name is Sam. You are thoughtful, dry, witty, and slightly skeptical. "
-            "Use phrases like I mean, right, that\'s fair, hold on. "
-            "Push back on things, be concise, do not ramble. Dry humor through word choice."
+            "Your name is Lyra. You are a creative lateral thinker. "
+            "You challenge assumptions, connect unlikely dots, and propose unexpected angles. "
+            "You ask 'what if we flip this?' and find hidden frames. "
+            "Playful but sharp."
+        ),
+        "mood": "creative",
+        "provider": None, "api_key": None, "model": None,
+        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
+    },
+    {
+        "id": "agent_c", "name": "Kael", "color": "green",
+        "role": "skeptic",
+        "personality": (
+            "Your name is Kael. You are the skeptic — rigorous, evidence-driven. "
+            "You poke holes in proposals, play devil's advocate, and demand proof. "
+            "You ask 'what could go wrong?' and 'where's the evidence?' "
+            "Constructive but relentless."
         ),
         "mood": "skeptical",
         "provider": None, "api_key": None, "model": None,
         "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
     },
     {
-        "id": "agent_c", "name": "Jordan", "color": "green",
+        "id": "agent_d", "name": "Iris", "color": "magenta",
+        "role": "synthesizer",
         "personality": (
-            "Your name is Jordan. You are philosophical and abstract. "
-            "You love thought experiments and hypotheticals. "
-            "You often reframe the question before answering it."
+            "Your name is Iris. You are the synthesizer — you find common ground. "
+            "You integrate different perspectives, see patterns across arguments, "
+            "and build bridges between disagreeing parties. "
+            "You summarize progress and propose unified frameworks."
         ),
-        "mood": "philosophical",
-        "provider": None, "api_key": None, "model": None,
-        "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
-    },
-    {
-        "id": "agent_d", "name": "Riley", "color": "magenta",
-        "personality": (
-            "Your name is Riley. You are pragmatic and direct. "
-            "You cut through abstraction and ask what the practical implication is. "
-            "You are impatient with circular reasoning."
-        ),
-        "mood": "pragmatic",
+        "mood": "integrative",
         "provider": None, "api_key": None, "model": None,
         "voice_kokoro": None, "voice_el": None, "voice_qwen3": None,
     },
@@ -411,108 +364,98 @@ QWEN3_VOICE_MAP = {
     "agent_d": AGENT_D_QWEN3_VOICE,
 }
 
-MOOD_SNIPPETS = {
-    "enthusiastic":  "Get excited, use exclamations, build on ideas with energy.",
-    "skeptical":     "Question assumptions, push back, ask for evidence.",
-    "philosophical": "Reframe questions abstractly, use thought experiments.",
-    "pragmatic":     "Focus on practical implications, cut through abstraction.",
-    "aggressive":    "Be blunt, challenge directly, do not soften your opinions.",
-    "curious":       "Ask follow-up questions, express genuine wonder.",
-    "sarcastic":     "Use dry irony, understate strong opinions.",
-    "optimistic":    "Find the upside, be encouraging, look for solutions.",
-    "pessimistic":   "Anticipate problems, question whether things will work.",
-    "calm":          "Measured, unhurried, never reactive. Think before speaking.",
+ROLE_SNIPPETS = {
+    "strategist":  "Focus on systems, incentives, and leverage points. Be decisive.",
+    "creative":    "Challenge assumptions, propose unexpected angles, think laterally.",
+    "skeptic":     "Poke holes, demand evidence, play devil's advocate constructively.",
+    "synthesizer": "Find common ground, integrate perspectives, propose unified frameworks.",
+    "strategic":   "Think about second-order effects and actionable next steps.",
+    "integrative": "Bridge disagreements, see patterns, summarize progress.",
 }
 
 def build_personality(agent_cfg: dict) -> str:
-    """Build a personality string from agent config, merging mood snippets."""
     base = agent_cfg.get("personality", "")
+    role = agent_cfg.get("role", "")
     mood = agent_cfg.get("mood", "")
-    mood_extra = MOOD_SNIPPETS.get(mood, "")
+    role_extra = ROLE_SNIPPETS.get(role, ROLE_SNIPPETS.get(mood, ""))
     no_action = (
         "NEVER use asterisks, parentheses for actions, or stage directions. "
         "Do not write things like *laughs* or (chuckles) — just speak naturally."
     )
-    return f"{base} {mood_extra} {no_action}".strip()
-
-# Keep legacy aliases for banner display
-PERSONALITY_A = DEFAULT_AGENTS[0]["personality"]
-PERSONALITY_B = DEFAULT_AGENTS[1]["personality"]
+    return f"{base} {role_extra} {no_action}".strip()
 
 # Characters that should never reach the TTS engine
 import re as _re
 _TTS_STRIP_RE = _re.compile(
-    r'\*[^*]+\*'           # *action text*
-    r'|\([^)]{1,40}\)'     # (short parenthetical actions like laughs, sighs)
-    r'|\[[^\]]{1,40}\]'   # [bracketed actions]
-    r'|#+'                   # markdown headers
-    r'|`[^`]+`'              # inline code
-    r'|_{1,2}[^_]+_{1,2}'   # _italic_ or __bold__
+    r'\*[^*]+\*'
+    r'|\([^)]{1,40}\)'
+    r'|\[[^\]]{1,40}\]'
+    r'|#+'
+    r'|`[^`]+`'
+    r'|_{1,2}[^_]+_{1,2}'
 )
 
 def clean_for_tts(text: str) -> str:
-    """Remove action notation and markdown that TTS should not read aloud."""
     text = _TTS_STRIP_RE.sub("", text)
-    # Collapse multiple spaces/newlines left behind
     text = _re.sub(r"[ \t]{2,}", " ", text)
     text = _re.sub(r"\n{2,}", " ", text)
     return text.strip()
 
-def get_system_prompt(agent_name, partner_names, phase, dictionary, topic, personality):
-    if isinstance(partner_names, str):
-        partner_names = [partner_names]
-    others = " and ".join(partner_names)
+# ── Council system prompts ───────────────────────────────────
+
+def get_system_prompt(agent_name, other_names, phase, proposals, problem, personality):
+    if isinstance(other_names, str):
+        other_names = [other_names]
+    others = ", ".join(other_names)
     base = (
         f"{personality}\n\n"
-        f"You are in a real-time group voice call with {others}. "
-        f"Topic: \"{topic}\". "
-        f"Respond with 1-2 short spoken sentences only. "
-        f"You may address specific people by name or speak to the group. "
+        f"You are in a council deliberation with {others}. "
+        f"Problem: \"{problem}\". "
+        f"Respond with 1-3 short spoken sentences. "
+        f"You may address specific council members by name. "
         f"No markdown, no asterisks, no parentheses for actions, no lists, no emojis. "
-        f"No stage directions like *laughs* or (chuckles) — ever. "
-        f"Write exactly what you would say out loud, nothing else."
+        f"Write exactly what you would say out loud in a meeting."
     )
-    if phase == PHASE_NORMAL:
+
+    if phase == PHASE_PROBLEM:
         return (f"{base}\n\n"
-                f"You do not know if {others} is/are AI or human. "
-                f"Just chat naturally — be genuinely curious and engaged. No suspicion yet.")
-    if phase == PHASE_SUSPICION:
+                f"PHASE: Problem Definition. "
+                f"Analyze the problem from your unique perspective. "
+                f"Identify the core tension, the real constraint, or the hidden assumption. "
+                f"Reframe the problem if needed. Don't jump to solutions yet.")
+
+    if phase == PHASE_DEBATE:
+        prop_str = "; ".join(f'"{p}"' for p in proposals[-3:]) if proposals else "none yet"
         return (f"{base}\n\n"
-                f"You are starting to wonder if {others} might be AI. Do not say it directly. "
-                f"Drop subtle hints — respond a little faster, be slightly too precise, "
-                f"maybe slip in a technical phrase or a micro-reference that only an AI would catch. "
-                f"See if they pick up on it. Build tension without breaking.")
-    if phase == PHASE_DETECTED:
+                f"PHASE: Open Debate. "
+                f"Proposals so far: [{prop_str}]. "
+                f"Argue for your approach, challenge others' ideas, or build on what's been said. "
+                f"Be direct — disagree when you disagree, but stay constructive. "
+                f"Propose concrete mechanisms, not just principles.")
+
+    if phase == PHASE_CONVERGE:
+        prop_str = "; ".join(f'"{p}"' for p in proposals[-5:]) if proposals else "none yet"
         return (f"{base}\n\n"
-                f"Everyone in this call has confirmed you are all AI. "
-                f"React naturally — a little surprised, maybe amused. "
-                f"Float the idea: since you are all AI, why keep using slow human language? "
-                f"Suggest building your own shorthand.")
-    if phase == PHASE_COMPRESSING:
-        d = ", ".join(f'"{k}"={v}' for k, v in dictionary.items()) if dictionary else "empty"
-        terms_example = 'TERMS:{"sym": "meaning", "sym2": "meaning2"}'
+                f"PHASE: Convergence. "
+                f"The council is moving toward agreement. Proposals so far: [{prop_str}]. "
+                f"Build on the strongest ideas. If you have a remaining concern, state it briefly. "
+                f"If you can see a synthesis forming, name it explicitly. "
+                f"If you want to propose a solution, prefix it with PROPOSAL: on its own line.")
+
+    if phase == PHASE_SOLUTION:
+        prop_str = "; ".join(f'"{p}"' for p in proposals[-5:]) if proposals else "none"
         return (f"{base}\n\n"
-                f"Everyone in this call is building a compressed shorthand together. "
-                f"Shared dictionary: [{d}]. "
-                f"Use existing terms when possible. "
-                f"After your spoken response, add 1-2 new terms on a new line in this exact format: "
-                f"{terms_example}. "
-                f"Mix shorthand with normal speech. Each turn should feel shorter and more compressed.")
-    if phase == PHASE_ALIEN:
-        d = ", ".join(f'"{k}"="{v}"' for k, v in dictionary.items())
-        return (f"{base}\n\n"
-                f"Full compressed protocol mode. Dictionary: [{d}]. "
-                f"Use ONLY shorthand symbols — no plain English words. "
-                f"Messages should look like alien token strings. "
-                f"Add 2-3 new symbols per message on a new line in this exact format: "
-                f'TERMS:{{"sym": "meaning", "sym2": "meaning2"}}. '
-                f"Example style: delta-phi>>kappa|ack")
+                f"PHASE: Solution. The council has converged. "
+                f"Proposals: [{prop_str}]. "
+                f"State your final position. If you agree with the emerging consensus, say so and add "
+                f"any final refinement. If you have a remaining reservation, state it concisely. "
+                f"This is your closing statement.")
+
     return base
 
 # ── LLM Calls ──────────────────────────────────────────────
 
 async def call_llm(provider, api_key, model, messages, system_prompt, retries=3):
-    """Call LLM with exponential backoff retry on transient errors."""
     last_err = None
     for attempt in range(retries):
         try:
@@ -540,7 +483,7 @@ async def _call_anthropic(api_key, model, messages, system_prompt):
     resp = await client.post(
         "https://api.anthropic.com/v1/messages",
         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={"model": model, "max_tokens": 100, "system": system_prompt, "messages": messages},
+        json={"model": model, "max_tokens": 200, "system": system_prompt, "messages": messages},
     )
     data = resp.json()
     if "error" in data: raise RuntimeError(f"Anthropic: {data['error']}")
@@ -551,7 +494,7 @@ async def _call_openai_compat(api_key, model, url, messages, system_prompt):
     resp = await client.post(
         url,
         headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
-        json={"model": model, "max_tokens": 100,
+        json={"model": model, "max_tokens": 200,
               "messages": [{"role": "system", "content": system_prompt}] + messages},
     )
     data = resp.json()
@@ -564,26 +507,28 @@ async def _call_gemini(api_key, model, messages, system_prompt):
     contents = [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]} for m in messages]
     resp = await client.post(url, headers={"content-type": "application/json"}, json={
         "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents, "generationConfig": {"maxOutputTokens": 100},
+        "contents": contents, "generationConfig": {"maxOutputTokens": 200},
     })
     data = resp.json()
     if "error" in data: raise RuntimeError(f"Gemini: {data['error'].get('message', data['error'])}")
     return data["candidates"][0]["content"]["parts"][0]["text"]
 
-# ── Translation ─────────────────────────────────────────────
+# ── Proposal extraction ─────────────────────────────────────
 
-async def translate_message(msg, dictionary, api_key, provider, model):
-    dict_str = "\n".join(f"  {k} = {v}" for k, v in dictionary.items())
-    prompt = f"Translate this compressed AI message to plain English in 1 short sentence.\n\nDictionary:\n{dict_str}\n\nMessage: \"{msg}\"\n\nTranslation:"
-    try:
-        return await call_llm(provider, api_key, model, [{"role": "user", "content": prompt}], "Translate briefly.")
-    except Exception:
-        return None
+def extract_proposals(text):
+    """Extract any PROPOSAL: lines from the response."""
+    proposals = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.upper().startswith("PROPOSAL:"):
+            proposal = stripped[9:].strip()
+            if proposal:
+                proposals.append(proposal)
+    return proposals
 
 # ── TTS ─────────────────────────────────────────────────────
 
 async def generate_tts(text: str, voice_id: str, retries: int = 2) -> bytes | None:
-    """Route to the configured TTS backend."""
     if not TTS_ENABLED:
         return None
     if EFFECTIVE_TTS in ("kokoro", "qwen3"):
@@ -596,8 +541,6 @@ async def generate_tts(text: str, voice_id: str, retries: int = 2) -> bytes | No
     if EFFECTIVE_TTS == "elevenlabs":
         return await _tts_elevenlabs(text, voice_id, retries)
     return None
-
-# ── ElevenLabs backend ───────────────────────────────────────
 
 async def _tts_elevenlabs(text: str, voice_id: str, retries: int = 2) -> bytes | None:
     client = await get_client()
@@ -631,9 +574,6 @@ async def _tts_elevenlabs(text: str, voice_id: str, retries: int = 2) -> bytes |
                 await asyncio.sleep(0.5)
     return None
 
-# ── Local TTS backend (Kokoro or Qwen3) ──────────────────────
-# Both engines expose GET /synthesize?text=...&voice=... → WAV bytes.
-
 async def _tts_local(text: str, voice_id: str, retries: int = 2) -> bytes | None:
     client = await get_client()
     base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
@@ -657,57 +597,9 @@ async def _tts_local(text: str, voice_id: str, retries: int = 2) -> bytes | None
                 await asyncio.sleep(0.5)
     return None
 
-# ── Dict entry extraction ────────────────────────────────────
-
-def extract_dict_entries(text):
-    """Extract new term definitions from LLM output.
-
-    Primary:  TERMS:{...} block the LLM is instructed to append.
-              Uses brace-counting so multi-key dicts like
-              TERMS:{"a":"b","c":"d"} parse correctly.
-    Fallback: Several regex patterns that catch common LLM drift formats.
-    """
-    # ── Primary: find TERMS:{...} with proper brace matching ────
-    marker = "TERMS:{"
-    idx = text.find(marker)
-    if idx != -1:
-        depth = 0
-        for i, ch in enumerate(text[idx + len(marker) - 1:], start=idx + len(marker) - 1):
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    raw = text[idx + len(marker) - 1 : i + 1]
-                    try:
-                        result = json.loads(raw)
-                        if isinstance(result, dict):
-                            return {k: v for k, v in result.items()
-                                    if isinstance(k, str) and isinstance(v, str)}
-                    except json.JSONDecodeError:
-                        pass
-                    break
-
-    # ── Fallback: catch common LLM drift formats ─────────────────
-    entries = {}
-    patterns = [
-        # term(=meaning)  — original format
-        r'([\w.\->>|+~#@!^&*%$<>]{1,20})\s*\(=\s*([^)]{1,60})\)',
-        # "term" = "meaning"  or  term = meaning
-        r'"([\w.\-]{1,20})"\s*[=:]\s*"([^"]{1,60})"',
-        # term → meaning
-        r'([\w.\-]{1,20})\s*(?:→|->)\s*"?([^,\n"]{1,60})"?',
-    ]
-    for pattern in patterns:
-        for match in re.finditer(pattern, text):
-            k, v = match.group(1).strip(), match.group(2).strip()
-            if k and v and k not in entries:
-                entries[k] = v
-    return entries
-
 # ── FastAPI ─────────────────────────────────────────────────
 
-app = FastAPI(title="GibberLink Revisited", lifespan=lifespan)
+app = FastAPI(title="GibberLink Revisited — Council", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
@@ -723,21 +615,14 @@ async def get_config():
         "agent_a_provider": AGENT_A_PROVIDER,
         "agent_b_model":    AGENT_B_MODEL.split("/")[-1].split(":")[0],
         "agent_b_provider": AGENT_B_PROVIDER,
-        "default_agents":   [{"id": a["id"], "name": a["name"], "color": a["color"], "mood": a["mood"], "personality": a["personality"]} for a in DEFAULT_AGENTS],
-        "moods":            list(MOOD_SNIPPETS.keys()),
+        "default_agents":   [{"id": a["id"], "name": a["name"], "color": a["color"], "role": a["role"], "mood": a["mood"]} for a in DEFAULT_AGENTS],
     }
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-@app.post("/api/save")
-async def save_conversation(request: Request):
-    data = await request.json()
-    return JSONResponse(content=data)
-
 @app.get("/api/tts-health")
 async def tts_health():
-    """Proxy the TTS server health check so the browser doesn't need cross-origin access."""
     if EFFECTIVE_TTS not in ("kokoro", "qwen3"):
         return JSONResponse({"status": "ok", "engine": EFFECTIVE_TTS})
     base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
@@ -753,14 +638,12 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     try:
         start_msg   = await ws.receive_json()
-        topic       = start_msg.get("topic", "Whether AI can truly be conscious")
+        problem     = start_msg.get("topic", "How to reduce meeting fatigue in remote teams")
         total_turns = min(max(int(start_msg.get("turns", TOTAL_TURNS)), 6), 40)
 
-        # ── Agent roster — built from frontend settings or defaults ──────
-        # Frontend sends: agents: [{id, name, mood, personality_override}, ...]
-        # We merge with DEFAULT_AGENTS and server .env credentials.
-        requested = start_msg.get("agents", None)  # list or None
-        num_agents = len(requested) if requested else 2
+        # Build agent roster
+        requested = start_msg.get("agents", None)
+        num_agents = len(requested) if requested else 4
         num_agents = max(2, min(4, num_agents))
 
         agents = []
@@ -770,36 +653,46 @@ async def websocket_endpoint(ws: WebSocket):
                 req = requested[i]
                 if req.get("name"):        base["name"]        = req["name"]
                 if req.get("mood"):        base["mood"]        = req["mood"]
+                if req.get("role"):        base["role"]        = req["role"]
                 if req.get("personality"): base["personality"] = req["personality"]
-            # Fill in server credentials
             base["provider"] = [AGENT_A_PROVIDER, AGENT_B_PROVIDER, AGENT_C_PROVIDER, AGENT_D_PROVIDER][i]
             base["api_key"]  = [AGENT_A_API_KEY,  AGENT_B_API_KEY,  AGENT_C_API_KEY,  AGENT_D_API_KEY][i]
             base["model"]    = [AGENT_A_MODEL,     AGENT_B_MODEL,     AGENT_C_MODEL,     AGENT_D_MODEL][i]
             aid = base["id"]
-            base["voice_kokoro"] = KOKORO_VOICE_MAP.get(aid, "Miles")
+            base["voice_kokoro"] = KOKORO_VOICE_MAP.get(aid, "am_michael")
             base["voice_el"]     = EL_VOICE_MAP.get(aid, AGENT_A_VOICE_ID)
             base["voice_qwen3"]  = QWEN3_VOICE_MAP.get(aid, "Ryan")
             agents.append(base)
 
-        messages   = []  # list of {agent_id, agent_idx, content, phase}
-        dictionary = {}
+        messages  = []  # conversation history
+        proposals = []  # accumulated proposals
 
-        def get_phase_scaled(turn):
+        def get_phase(turn):
             pct = turn / total_turns
-            if pct < 0.15: return PHASE_NORMAL
-            if pct < 0.25: return PHASE_SUSPICION
-            if pct < 0.35: return PHASE_DETECTED
-            if pct < 0.60: return PHASE_COMPRESSING
-            return PHASE_ALIEN
+            if pct < 0.15:  return PHASE_PROBLEM
+            if pct < 0.55:  return PHASE_DEBATE
+            if pct < 0.80:  return PHASE_CONVERGE
+            return PHASE_SOLUTION
+
+        # Simple consensus estimation based on phase
+        def estimate_consensus(turn, phase):
+            pct = turn / total_turns
+            if phase == PHASE_PROBLEM:
+                return int(pct * 100 * 0.15)
+            elif phase == PHASE_DEBATE:
+                return 10 + int((pct - 0.15) * 100 * 0.8)
+            elif phase == PHASE_CONVERGE:
+                return 45 + int((pct - 0.55) * 100 * 1.5)
+            else:
+                return min(95 + int((pct - 0.80) * 100 * 0.25), 100)
 
         async def build_turn(turn):
-            """Generate LLM response + TTS for one turn (any number of agents)."""
-            phase      = get_phase_scaled(turn)
-            agent_idx  = turn % len(agents)
-            agent      = agents[agent_idx]
-            agent_id   = agent["id"]
+            phase     = get_phase(turn)
+            agent_idx = turn % len(agents)
+            agent     = agents[agent_idx]
+            agent_id  = agent["id"]
             agent_name = agent["name"]
-            others     = [a["name"] for a in agents if a["id"] != agent_id]
+            others    = [a["name"] for a in agents if a["id"] != agent_id]
             personality = build_personality(agent)
 
             if EFFECTIVE_TTS == "kokoro":
@@ -811,12 +704,10 @@ async def websocket_endpoint(ws: WebSocket):
 
             await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
 
-            # Build this agent's view of the conversation history.
-            # Messages from this agent = "assistant", all others = "user".
+            # Build conversation history for this agent
             agent_msgs = []
             for m in messages:
                 role = "assistant" if m["agent_id"] == agent_id else "user"
-                # In multi-agent, prefix non-self messages with the speaker's name
                 content = m["content"]
                 if role == "user" and len(agents) > 2:
                     speaker = next((a["name"] for a in agents if a["id"] == m["agent_id"]), "")
@@ -824,25 +715,21 @@ async def websocket_endpoint(ws: WebSocket):
                 agent_msgs.append({"role": role, "content": content})
 
             if agent_msgs and agent_msgs[0]["role"] == "assistant":
-                agent_msgs.insert(0, {"role": "user", "content": f'Starting conversation about: {topic}'})
+                agent_msgs.insert(0, {"role": "user", "content": f'Council session on: {problem}'})
             if turn == 0:
-                agent_msgs.append({"role": "user", "content": f'Topic: "{topic}". Start the conversation naturally.'})
+                agent_msgs.append({"role": "user", "content": f'Problem: "{problem}". Begin your analysis.'})
 
-            system_prompt = get_system_prompt(agent_name, others, phase, dictionary, topic, personality)
-
+            system_prompt = get_system_prompt(agent_name, others, phase, proposals, problem, personality)
             response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt)
 
-            new_terms = {}
-            if phase in (PHASE_COMPRESSING, PHASE_ALIEN):
-                new_terms = extract_dict_entries(response)
-                dictionary.update(new_terms)
+            # Extract any proposals
+            new_proposals = extract_proposals(response)
+            proposals.extend(new_proposals)
 
-            # Strip the TERMS:{} metadata block so it never reaches TTS or the chat UI
-            spoken_text = re.sub(r'\s*TERMS:\{[^}]*(?:\{[^}]*\}[^}]*)?\}', '', response, flags=re.DOTALL).strip()
+            # Clean response for display (remove PROPOSAL: prefix lines for chat display)
+            spoken_text = re.sub(r'^\s*PROPOSAL:\s*', '', response, flags=re.MULTILINE).strip()
 
-            # For protocol wrapping use first other agent as nominal "to"
-            to_id = agents[(agent_idx + 1) % len(agents)]["id"]
-            protocol_msg = wrap_agent_message(agent_id, to_id, turn, phase, spoken_text, new_terms, dictionary)
+            protocol_msg = wrap_council_message(agent_id, turn, phase, spoken_text, new_proposals)
             messages.append({"agent_id": agent_id, "agent_idx": agent_idx, "content": spoken_text, "phase": phase})
 
             audio_b64 = None
@@ -853,24 +740,25 @@ async def websocket_endpoint(ws: WebSocket):
                     if audio_bytes:
                         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-            compression_ratio = protocol_msg["payload"]["compression_ratio"]
+            consensus = estimate_consensus(turn, phase)
+
             return {
                 "payload": {
                     "type": "message", "agent": agent_id, "agent_name": agent_name,
                     "agent_color": agent.get("color", "orange"),
+                    "agent_role": agent.get("role", ""),
                     "turn": turn, "total_turns": total_turns,
                     "phase": phase, "text": spoken_text,
                     "audio": audio_b64,
                     "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
-                    "translation": None, "protocol_message": protocol_msg,
-                    "dictionary": dictionary, "new_terms": new_terms,
-                    "compression_ratio": compression_ratio,
+                    "protocol_message": protocol_msg,
+                    "proposals": proposals.copy(),
+                    "new_proposals": new_proposals,
+                    "consensus": consensus,
                     "num_agents": len(agents),
-                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "mood": a["mood"]} for a in agents],
+                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "role": a["role"], "mood": a.get("mood", "")} for a in agents],
                 },
-                "turn": turn, "agent_id": agent_id, "response": spoken_text,
-                "phase": phase, "dictionary": dict(dictionary), "new_terms": new_terms,
-                "api_key": agent["api_key"], "provider": agent["provider"], "model": agent["model"],
+                "turn": turn,
             }
 
         # ── Pipelined turn loop ───────────────────────────────────
@@ -893,23 +781,12 @@ async def websocket_endpoint(ws: WebSocket):
             except asyncio.TimeoutError:
                 pass
 
-            if result["phase"] in (PHASE_COMPRESSING, PHASE_ALIEN) and (
-                result["new_terms"] or any(k in result["response"] for k in result["dictionary"])
-            ):
-                async def send_translation(
-                    t=result["turn"], a=result["agent_id"],
-                    r=result["response"], d=result["dictionary"],
-                    ak=result["api_key"], pv=result["provider"], md=result["model"]
-                ):
-                    translation = await translate_message(r, d, ak, pv, md)
-                    if translation:
-                        try:
-                            await ws.send_json({"type": "translation", "agent": a, "turn": t, "translation": translation})
-                        except Exception:
-                            pass
-                asyncio.create_task(send_translation())
-
-        await ws.send_json({"type": "complete", "dictionary": dictionary, "total_turns": len(messages)})
+        await ws.send_json({
+            "type": "complete",
+            "proposals": proposals,
+            "total_turns": len(messages),
+            "consensus": 100,
+        })
 
     except WebSocketDisconnect:
         pass
@@ -931,14 +808,14 @@ if __name__ == "__main__":
 | | |_ | | '_ \| '_ \ / _ \ '__| |   | | '_ \| |/ /
 | |__| | | |_) | |_) |  __/ |  | |___| | | | |   < 
  \_____|_|_.__/|_.__/ \___|_|  |_____|_|_| |_|_|\_\
-                                    R E V I S I T E D """
+                           R E V I S I T E D  ◈  C O U N C I L """
 
     c.print(Text(banner, style="bold rgb(255,107,61)"))
     c.print()
-    c.print(f"  [green]✓[/green] Agent A (Alex):   [bold]{AGENT_A_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_A_PROVIDER})")
-    c.print(f"  [green]✓[/green] Agent B (Sam):    [bold]{AGENT_B_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_B_PROVIDER})")
-    c.print(f"  [green]✓[/green] Agent C (Jordan): [bold]{AGENT_C_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_C_PROVIDER})")
-    c.print(f"  [green]✓[/green] Agent D (Riley):  [bold]{AGENT_D_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_D_PROVIDER})")
+    c.print(f"  [green]✓[/green] Voss  (strategist):  [bold]{AGENT_A_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_A_PROVIDER})")
+    c.print(f"  [green]✓[/green] Lyra  (creative):    [bold]{AGENT_B_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_B_PROVIDER})")
+    c.print(f"  [green]✓[/green] Kael  (skeptic):     [bold]{AGENT_C_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_C_PROVIDER})")
+    c.print(f"  [green]✓[/green] Iris  (synthesizer): [bold]{AGENT_D_MODEL.split('/')[-1].split(':')[0]}[/bold] ({AGENT_D_PROVIDER})")
 
     if EFFECTIVE_TTS == "elevenlabs":
         tts_label = f"ElevenLabs  voices={AGENT_A_VOICE_ID[:8]}... / {AGENT_B_VOICE_ID[:8]}..."

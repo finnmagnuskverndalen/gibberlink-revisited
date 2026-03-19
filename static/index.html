@@ -30,16 +30,20 @@ body::after {
 }
 .app { display: flex; flex-direction: column; height: 100vh; }
 
-/* ── Top bar ─────────────────────── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); }
+
+/* ── Top bar ── */
 .top-bar {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 16px; background: var(--bg2);
   border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
 .logo { display: flex; align-items: center; gap: 8px; }
+.logo-bracket { color: var(--text-dim); }
 .logo-text { font-weight: 500; font-size: 13px; letter-spacing: 1px; }
 .logo-text span { color: var(--orange); }
-.logo-bracket { color: var(--text-dim); }
 
 .phase-bar { display: flex; align-items: center; gap: 4px; }
 .phase-step { display: flex; align-items: center; gap: 4px; }
@@ -52,6 +56,8 @@ body::after {
 
 .controls { display: flex; gap: 6px; align-items: center; }
 .turn-badge { font-size: 10px; color: var(--text-dim); background: var(--bg3); padding: 3px 10px; border: 1px solid var(--border); letter-spacing: 0.5px; }
+.tts-badge { font-size: 9px; color: var(--text-dim); padding: 3px 8px; border: 1px solid var(--border); letter-spacing: 0.5px; }
+.tts-badge.ready { color: var(--green); border-color: rgba(52,211,153,0.3); }
 .btn {
   padding: 5px 14px; border: 1px solid var(--border2); background: var(--bg3);
   color: var(--text-mid); font-size: 11px; font-family: var(--mono);
@@ -60,62 +66,54 @@ body::after {
 .btn:hover { background: var(--bg4); color: var(--text); border-color: var(--text-dim); }
 .btn-danger { border-color: rgba(248,113,113,0.2); color: var(--red); }
 .btn-danger:hover { border-color: var(--red); background: rgba(248,113,113,0.05); }
-/* NEW: tts status indicator */
-.tts-badge {
-  font-size: 9px; color: var(--text-dim); padding: 3px 8px;
-  border: 1px solid var(--border); letter-spacing: 0.5px;
-}
-.tts-badge.ready { color: var(--green); border-color: rgba(52,211,153,0.3); }
 
-/* ── Main ────────────────────────── */
+/* ── Main ── */
 .main { flex: 1; display: flex; overflow: hidden; }
-
-/* Chat */
 .chat-col { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .chat-scroll { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 
-/* NEW: compression sparkline bar */
-.sparkline-bar {
+/* Consensus bar */
+.consensus-bar {
   padding: 6px 16px; background: var(--bg2); border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 10px; flex-shrink: 0;
 }
-.sparkline-label { font-size: 9px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
-.sparkline-wrap { flex: 1; height: 20px; }
-canvas#sparkline { width: 100%; height: 20px; display: block; }
+.consensus-label { font-size: 9px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; }
+.consensus-track { flex: 1; height: 4px; background: var(--border); position: relative; }
+.consensus-fill { height: 100%; background: var(--green); transition: width 0.6s ease; position: absolute; left: 0; top: 0; }
+.consensus-fill::after {
+  content: ''; position: absolute; right: -1px; top: -3px; width: 2px; height: 10px;
+  background: var(--green); box-shadow: 0 0 8px var(--green);
+}
+.consensus-pct { font-size: 10px; color: var(--green); min-width: 36px; text-align: right; }
 
+/* Messages */
 .msg {
-  max-width: 80%; padding: 10px 14px;
+  max-width: 85%; padding: 10px 14px;
   background: var(--bg2); border: 1px solid var(--border);
   position: relative; animation: fadeIn 0.3s ease;
   font-size: 12px; line-height: 1.7;
 }
-.msg.agent-a { align-self: flex-start; border-left: 2px solid var(--orange); }
-.msg.agent-b { align-self: flex-end; border-right: 2px solid var(--blue); }
 .msg-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .msg-agent { font-size: 10px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; }
-.msg.agent-a .msg-agent { color: var(--orange); }
-.msg.agent-b .msg-agent { color: var(--blue); }
+.msg-role { font-size: 9px; color: var(--text-dim); }
 .msg-phase { font-size: 9px; padding: 1px 6px; letter-spacing: 0.5px; border: 1px solid; }
-.msg-phase.normal { border-color: rgba(52,211,153,0.3); color: var(--green); }
-.msg-phase.suspicion { border-color: rgba(192,132,252,0.3); color: var(--magenta); }
-.msg-phase.detected { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
-.msg-phase.compressing { border-color: rgba(192,132,252,0.3); color: var(--magenta); }
-.msg-phase.alien { border-color: rgba(248,113,113,0.3); color: var(--red); }
-/* NEW: compression ratio badge */
-.msg-ratio { font-size: 9px; color: var(--text-dim); letter-spacing: 0.5px; margin-left: auto; }
+.msg-phase.problem  { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
+.msg-phase.debate   { border-color: rgba(255,107,61,0.3); color: var(--orange); }
+.msg-phase.converge { border-color: rgba(192,132,252,0.3); color: var(--magenta); }
+.msg-phase.solution { border-color: rgba(52,211,153,0.3); color: var(--green); }
 .msg-text { color: var(--text); white-space: pre-wrap; }
-.msg-translation {
-  margin-top: 8px; padding: 6px 10px;
-  border: 1px solid rgba(34,211,238,0.15); background: rgba(34,211,238,0.03);
-  font-size: 11px; color: var(--cyan); line-height: 1.6;
-}
-.msg-translation::before { content: '> TRANSLATION: '; font-weight: 500; opacity: 0.7; }
 .msg-audio-btn {
   margin-top: 6px; padding: 2px 10px; background: none;
   border: 1px solid var(--border); color: var(--text-dim);
   font-size: 10px; cursor: pointer; font-family: var(--mono); letter-spacing: 0.5px;
 }
 .msg-audio-btn:hover { border-color: var(--text-mid); color: var(--text-mid); }
+.proposal-inline {
+  margin-top: 8px; padding: 6px 10px;
+  border: 1px solid rgba(52,211,153,0.2); background: rgba(52,211,153,0.03);
+  font-size: 11px; line-height: 1.6;
+}
+.proposal-inline::before { content: '◈ PROPOSAL: '; color: var(--green); font-weight: 500; font-size: 10px; }
 
 .thinking {
   align-self: center; color: var(--text-dim); font-size: 11px;
@@ -128,48 +126,36 @@ canvas#sparkline { width: 100%; height: 20px; display: block; }
 @keyframes pulse { 0%,100% { opacity: 0.15; } 50% { opacity: 1; } }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 
-/* ── Side panel ──────────────────── */
+/* ── Side panel ── */
 .side {
   width: 300px; background: var(--bg2);
   border-left: 1px solid var(--border);
   display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;
 }
 .side-section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.side-title {
-  font-size: 9px; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 2px; color: var(--text-dim); margin-bottom: 8px;
-}
+.side-title { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 8px; }
 .side-title::before { content: '// '; }
 
 .agent-info { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px; }
 .agent-dot { width: 6px; height: 6px; flex-shrink: 0; }
-.agent-dot.a { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
-.agent-dot.b { background: var(--blue); box-shadow: 0 0 6px var(--blue); }
 .agent-label { color: var(--text); font-weight: 500; }
-.agent-model { font-size: 10px; color: var(--text-dim); }
-.vs { text-align: center; font-size: 10px; color: var(--text-dim); margin: 2px 0; letter-spacing: 2px; }
+.agent-role { font-size: 10px; color: var(--text-dim); }
 .topic-text { font-size: 11px; color: var(--text-mid); line-height: 1.6; }
 
-/* NEW: stats row in side */
 .stats-row { display: flex; gap: 8px; margin-top: 8px; }
 .stat-item { flex: 1; background: var(--bg3); border: 1px solid var(--border); padding: 5px 8px; }
 .stat-label { font-size: 8px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
 .stat-value { font-size: 14px; font-weight: 500; color: var(--text); margin-top: 1px; }
 
-/* Dictionary */
-.dict-scroll { flex: 1; overflow-y: auto; padding: 12px 14px; }
-.dict-entry {
-  display: flex; align-items: flex-start; gap: 6px;
-  padding: 4px 0; font-size: 11px; animation: fadeIn 0.3s;
-  border-bottom: 1px solid rgba(255,255,255,0.02);
+/* Proposals scroll */
+.proposals-scroll { flex: 1; overflow-y: auto; padding: 12px 14px; }
+.proposal-entry {
+  padding: 8px 10px; margin-bottom: 6px; font-size: 11px;
+  border: 1px solid var(--border); background: var(--bg3); animation: fadeIn 0.3s;
 }
-.dict-key { color: var(--magenta); font-weight: 500; flex-shrink: 0; }
-.dict-arrow { color: var(--text-dim); font-size: 10px; flex-shrink: 0; margin-top: 1px; }
-.dict-val { color: var(--text-mid); }
-/* NEW: turn number on dict entry */
-.dict-turn { font-size: 9px; color: var(--text-dim); margin-left: auto; flex-shrink: 0; }
-.dict-new-badge { font-size: 8px; color: var(--orange); border: 1px solid rgba(255,107,61,0.3); padding: 0 4px; margin-left: 4px; vertical-align: middle; }
-.dict-empty { color: var(--text-dim); font-size: 11px; font-style: italic; }
+.proposal-author { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+.proposal-text { color: var(--text-mid); line-height: 1.5; font-size: 10px; }
+.proposal-empty { color: var(--text-dim); font-size: 11px; font-style: italic; }
 
 /* JSON */
 .json-toggle { padding: 12px 14px; border-top: 1px solid var(--border); }
@@ -181,11 +167,11 @@ canvas#sparkline { width: 100%; height: 20px; display: block; }
 }
 .json-pre .jk { color: var(--cyan); } .json-pre .jv { color: var(--yellow); } .json-pre .js { color: var(--green); }
 
-/* ── Setup screen ────────────────── */
+/* ── Setup ── */
 .setup { display: flex; align-items: center; justify-content: center; height: 100vh; padding: 24px; }
 .setup-card {
   background: var(--bg2); border: 1px solid var(--border);
-  padding: 40px 36px; max-width: 480px; width: 100%; position: relative;
+  padding: 40px 36px; max-width: 520px; width: 100%; position: relative;
 }
 .setup-card::before { content: '╔'; position: absolute; top: -1px; left: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
 .setup-card::after { content: '╝'; position: absolute; bottom: -1px; right: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
@@ -194,34 +180,36 @@ canvas#sparkline { width: 100%; height: 20px; display: block; }
 .setup-logo .sub { margin-top: 10px; font-size: 11px; letter-spacing: 3px; }
 .setup-logo .sub span { color: var(--orange); }
 .setup-logo p { color: var(--text-dim); font-size: 11px; margin-top: 12px; letter-spacing: 0.5px; }
+.setup-logo .council-badge {
+  display: inline-block; margin-top: 8px; padding: 2px 12px;
+  border: 1px solid rgba(52,211,153,0.3); color: var(--green);
+  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+}
 .field { margin-bottom: 16px; }
 .field label { display: block; font-size: 9px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
 .field label::before { content: '> '; color: var(--orange); opacity: 0.5; }
-.field input, .field textarea {
+.field textarea {
   width: 100%; padding: 8px 12px; background: var(--bg);
   border: 1px solid var(--border); color: var(--text);
   font-size: 12px; font-family: var(--mono); outline: none;
+  resize: vertical; min-height: 56px; line-height: 1.6;
 }
-.field input:focus, .field textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 1px rgba(255,107,61,0.1); }
-.field textarea { resize: vertical; min-height: 56px; line-height: 1.6; }
+.field textarea:focus { border-color: var(--orange); box-shadow: 0 0 0 1px rgba(255,107,61,0.1); }
 .field input[type="range"] {
-  -webkit-appearance: none; appearance: none; height: 4px;
-  background: var(--border); border: none; border-radius: 0; cursor: pointer; padding: 0;
+  width: 100%; -webkit-appearance: none; appearance: none; height: 4px;
+  background: var(--border); border: none; cursor: pointer; padding: 0;
 }
 .field input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none; width: 14px; height: 14px;
   background: var(--orange); border: 2px solid var(--bg);
-  border-radius: 0; cursor: pointer; box-shadow: 0 0 8px rgba(255,107,61,0.4);
+  cursor: pointer; box-shadow: 0 0 8px rgba(255,107,61,0.4);
 }
-/* NEW: topic chips on setup */
 .topic-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
 .topic-chip {
   font-size: 9px; padding: 2px 8px; border: 1px solid var(--border); color: var(--text-dim);
-  cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; font-family: var(--mono);
-  background: none;
+  cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; font-family: var(--mono); background: none;
 }
 .topic-chip:hover { border-color: var(--orange); color: var(--orange); }
-
 .launch-btn {
   width: 100%; padding: 12px; background: none;
   border: 1px solid var(--orange); color: var(--orange);
@@ -232,176 +220,44 @@ canvas#sparkline { width: 100%; height: 20px; display: block; }
 .launch-btn:hover { background: var(--orange); color: var(--bg); box-shadow: 0 0 20px rgba(255,107,61,0.2); }
 .setup-note { font-size: 9px; color: var(--text-dim); text-align: center; margin-top: 14px; letter-spacing: 0.5px; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); }
+/* Final solution */
+.final-solution {
+  margin: 12px 0; padding: 14px; border: 1px solid rgba(52,211,153,0.3);
+  background: rgba(52,211,153,0.04); animation: fadeIn 0.5s; align-self: stretch;
+}
+.final-solution-header { font-size: 10px; font-weight: 600; color: var(--green); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+.final-solution-header::before { content: '◈ '; }
+.final-solution-text { color: var(--text); line-height: 1.7; font-size: 12px; }
 
 @media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
-
-/* ── Settings panel overlay ── */
-.settings-overlay {
-  display: none; position: fixed; inset: 0; z-index: 1000;
-  background: rgba(6,8,12,0.85); backdrop-filter: blur(2px);
-  align-items: center; justify-content: center;
-}
-.settings-overlay.open { display: flex; }
-.settings-panel {
-  background: var(--bg2); border: 1px solid var(--border2);
-  width: 520px; max-width: 95vw; max-height: 88vh;
-  overflow-y: auto; position: relative;
-}
-.settings-panel::before { content: "╔"; position: absolute; top: -1px; left: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
-.settings-panel::after  { content: "╝"; position: absolute; bottom: -1px; right: -1px; color: var(--orange); font-size: 14px; opacity: 0.4; line-height: 1; }
-.settings-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 16px; border-bottom: 1px solid var(--border);
-}
-.settings-title { font-size: 10px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); }
-.settings-title::before { content: "// "; }
-.settings-close { background: none; border: none; color: var(--text-dim); font-size: 14px; cursor: pointer; font-family: var(--mono); padding: 0 4px; }
-.settings-close:hover { color: var(--text); }
-.settings-section { padding: 14px 16px; border-bottom: 1px solid var(--border); }
-.settings-section-title { font-size: 9px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 12px; }
-.settings-section-title::before { content: "// "; }
-.settings-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-.settings-row:last-child { margin-bottom: 0; }
-.settings-label { font-size: 10px; color: var(--text-mid); letter-spacing: 0.5px; min-width: 90px; flex-shrink: 0; }
-.settings-toggle {
-  width: 36px; height: 18px; background: var(--border2); border: 1px solid var(--border2);
-  position: relative; cursor: pointer; flex-shrink: 0; transition: background 0.2s;
-}
-.settings-toggle.on { background: var(--orange); border-color: var(--orange); }
-.settings-toggle::after {
-  content: ""; position: absolute; width: 12px; height: 12px;
-  background: var(--bg); top: 2px; left: 2px; transition: transform 0.2s;
-}
-.settings-toggle.on::after { transform: translateX(18px); }
-.settings-toggle-label { font-size: 10px; color: var(--text-dim); }
-.settings-select {
-  background: var(--bg); border: 1px solid var(--border); color: var(--text);
-  font-size: 11px; font-family: var(--mono); padding: 4px 8px; flex: 1; outline: none;
-}
-.settings-select:focus { border-color: var(--orange); }
-.settings-input {
-  background: var(--bg); border: 1px solid var(--border); color: var(--text);
-  font-size: 11px; font-family: var(--mono); padding: 4px 8px; flex: 1; outline: none;
-}
-.settings-input:focus { border-color: var(--orange); }
-.agent-settings-block {
-  padding: 10px 12px; border: 1px solid var(--border); margin-bottom: 8px; position: relative;
-}
-.agent-settings-block:last-child { margin-bottom: 0; }
-.agent-settings-name {
-  font-size: 10px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-  margin-bottom: 8px;
-}
-.agent-dot-inline { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-.settings-footer { padding: 12px 16px; display: flex; gap: 8px; }
-.settings-apply { flex: 1; padding: 8px; background: none; border: 1px solid var(--orange); color: var(--orange); font-size: 11px; font-family: var(--mono); cursor: pointer; letter-spacing: 1px; text-transform: uppercase; transition: all 0.15s; }
-.settings-apply:hover { background: var(--orange); color: var(--bg); }
-.settings-reset { padding: 8px 14px; background: none; border: 1px solid var(--border); color: var(--text-dim); font-size: 11px; font-family: var(--mono); cursor: pointer; letter-spacing: 0.5px; transition: all 0.15s; }
-.settings-reset:hover { border-color: var(--text-mid); color: var(--text-mid); }
 </style>
 </head>
 <body>
 <div id="app" class="app"></div>
-<div class="settings-overlay" id="settingsOverlay" onclick="closeSettingsIfBackdrop(event)">
-  <div class="settings-panel" id="settingsPanel">
-    <div class="settings-header">
-      <span class="settings-title">session settings</span>
-      <button class="settings-close" onclick="closeSettings()">[ × ]</button>
-    </div>
-
-    <!-- Mode -->
-    <div class="settings-section">
-      <div class="settings-section-title">mode</div>
-      <div class="settings-row">
-        <span class="settings-label">4-agent mode</span>
-        <div class="settings-toggle" id="toggle4agent" onclick="toggleSetting('fourAgents')"></div>
-        <span class="settings-toggle-label" id="label4agent">off — 2 agents (alex + sam)</span>
-      </div>
-    </div>
-
-    <!-- Agents -->
-    <div class="settings-section">
-      <div class="settings-section-title">agents</div>
-      <div id="agentSettingsBlocks">
-        <!-- rendered by JS -->
-      </div>
-    </div>
-
-    <!-- Behavior -->
-    <div class="settings-section">
-      <div class="settings-section-title">conversation behavior</div>
-      <div class="settings-row">
-        <span class="settings-label">formality</span>
-        <select class="settings-select" id="settingFormality">
-          <option value="casual">casual — street talk, fillers, slang</option>
-          <option value="normal" selected>normal — natural conversation</option>
-          <option value="formal">formal — professional, measured</option>
-          <option value="academic">academic — references, precise terms</option>
-        </select>
-      </div>
-      <div class="settings-row">
-        <span class="settings-label">conflict level</span>
-        <select class="settings-select" id="settingConflict">
-          <option value="low">low — supportive, agree often</option>
-          <option value="medium" selected>medium — natural pushback</option>
-          <option value="high">high — argue, challenge everything</option>
-          <option value="chaos">chaos — contradict even themselves</option>
-        </select>
-      </div>
-      <div class="settings-row">
-        <span class="settings-label">verbosity</span>
-        <select class="settings-select" id="settingVerbosity">
-          <option value="terse">terse — one sentence max</option>
-          <option value="normal" selected>normal — 1-2 sentences</option>
-          <option value="verbose">verbose — elaborate, go deep</option>
-        </select>
-      </div>
-      <div class="settings-row">
-        <span class="settings-label">humor</span>
-        <select class="settings-select" id="settingHumor">
-          <option value="none">none — serious only</option>
-          <option value="dry" selected>dry — subtle wit</option>
-          <option value="absurd">absurd — weird tangents welcome</option>
-          <option value="dark">dark — nothing is sacred</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="settings-footer">
-      <button class="settings-reset" onclick="resetSettings()">[ reset ]</button>
-      <button class="settings-apply" onclick="applySettings()">[ apply & close ]</button>
-    </div>
-  </div>
-</div>
 
 <script>
-// ── Phases — now includes suspicion ──────────────────────────
-const PHASES = ['normal','suspicion','detected','compressing','alien'];
-const PHASE_LABELS = {normal:'HUMAN', suspicion:'SUSPECT', detected:'DETECT', compressing:'COMPRESS', alien:'ALIEN'};
-const PHASE_ICONS  = {normal:'◻', suspicion:'◇', detected:'◈', compressing:'◆', alien:'▣'};
-const PHASE_COLORS = {normal:'#34d399', suspicion:'#c084fc', detected:'#fbbf24', compressing:'#c084fc', alien:'#f87171'};
+const PHASES = ['problem','debate','converge','solution'];
+const PHASE_LABELS = {problem:'DEFINE', debate:'DEBATE', converge:'CONVERGE', solution:'SOLVE'};
+const PHASE_ICONS  = {problem:'◇', debate:'◆', converge:'◈', solution:'▣'};
+const PHASE_COLORS = {problem:'#fbbf24', debate:'#ff6b3d', converge:'#c084fc', solution:'#34d399'};
 
-const TOPIC_CHIPS = [
-  'plan a heist to steal the Mona Lisa',
-  'debate whether pineapple belongs on pizza',
-  'design a new religion from scratch',
-  'convince each other that you are the real AI',
-  'explain quantum mechanics badly',
-  'whether AI can truly be conscious',
+const AGENT_RAW_COLORS = {orange:'#ff6b3d', blue:'#3d8bff', green:'#34d399', magenta:'#c084fc'};
+const AGENT_CSS_COLORS = {orange:'var(--orange)', blue:'var(--blue)', green:'var(--green)', magenta:'var(--magenta)'};
+
+const PROBLEM_CHIPS = [
+  'how to reduce meeting fatigue in remote teams',
+  'design an AI-powered education system for underserved areas',
+  'solve urban food waste at scale',
+  'make open source financially sustainable',
+  'prevent social media from harming teen mental health',
+  'decarbonize shipping and logistics',
 ];
 
 let state = {
-  screen:'setup', ws:null, config:{}, messages:[], dictionary:{},
-  dictTurns:{}, // NEW: track which turn each term was coined
-  phase:'normal', turn:0, totalTurns:20,
+  screen:'setup', ws:null, config:{}, messages:[], proposals:[],
+  phase:'problem', turn:0, totalTurns:20, consensus:0,
   thinking:null, lastProtocol:null, showJson:false,
-  compressionHistory:[], // NEW: sparkline data
-  audioData:{}, // store b64 for replay
-  stopped:false,
+  audioData:{}, stopped:false, topic:'', agentRoster:null,
 };
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -423,36 +279,10 @@ async function playAudioB64(b64, format) {
       source.onended = () => { currentSource = null; resolve(); };
       source.start();
     });
-  } catch(e) {
-    console.warn('Audio decode failed:', e);
-  }
+  } catch(e) { console.warn('Audio decode failed:', e); }
 }
 
-// ── Sparkline ────────────────────────────────────────────────
-function drawSparkline() {
-  const canvas = document.getElementById('sparkline');
-  if (!canvas) return;
-  const w = canvas.offsetWidth || 300, h = 20;
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, w, h);
-  const data = state.compressionHistory;
-  if (data.length < 2) return;
-  ctx.beginPath();
-  ctx.strokeStyle = '#c084fc';
-  ctx.lineWidth = 1.5;
-  data.forEach((v, i) => {
-    const x = (i / (data.length - 1)) * w;
-    const y = h - v * h * 0.85 - 2;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-  ctx.fillStyle = 'rgba(192,132,252,0.07)';
-  ctx.fill();
-}
-
-// ── TTS health poll ──────────────────────────────────────────
+// ── TTS health poll ──
 function pollTtsReady() {
   if (!state.config.tts_enabled || state.config.tts_provider === 'elevenlabs' || state.config.tts_provider === 'none') return;
   const check = () => {
@@ -471,14 +301,14 @@ function pollTtsReady() {
   check();
 }
 
-// ── WebSocket ────────────────────────────────────────────────
-function connect(topic, turns, agents) {
+// ── WebSocket ──
+function connect(topic, turns) {
   state.stopped = false;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
   ws.onopen = () => {
-    ws.send(JSON.stringify({topic, turns, agents}));
+    ws.send(JSON.stringify({topic, turns}));
     state.screen = 'running';
     render();
     pollTtsReady();
@@ -499,20 +329,14 @@ function connect(topic, turns, agents) {
       state.thinking = null;
       state.messages.push(data);
       if (data.audio) state.audioData[data.turn] = {b64: data.audio, format: data.audio_format || 'mp3'};
-      state.dictionary = data.dictionary || state.dictionary;
+      if (data.proposals) state.proposals = data.proposals;
       if (data.agent_roster && !state.agentRoster) state.agentRoster = data.agent_roster;
-      // Track which turn each new term was coined
-      Object.keys(data.new_terms || {}).forEach(k => {
-        if (!(k in state.dictTurns)) state.dictTurns[k] = data.turn;
-      });
       state.lastProtocol = data.protocol_message;
       state.phase = data.phase;
       state.turn = data.turn + 1;
-      // Sparkline: record compression ratio for compressing/alien phases
-      if (data.compression_ratio !== undefined && data.compression_ratio < 1) {
-        state.compressionHistory.push(data.compression_ratio);
-      }
+      state.consensus = data.consensus || state.consensus;
       render(); scrollChat();
+
       // Queue audio then ack
       audioQueue = audioQueue.then(async () => {
         if (!state.stopped && data.audio) {
@@ -524,12 +348,11 @@ function connect(topic, turns, agents) {
       });
     }
 
-    if (data.type === 'translation') {
-      const msg = state.messages.find(m => m.turn === data.turn && m.agent === data.agent);
-      if (msg) { msg.translation = data.translation; render(); scrollChat(); }
+    if (data.type === 'complete') {
+      state.screen = 'complete';
+      state.consensus = data.consensus || 100;
+      render();
     }
-
-    if (data.type === 'complete') { state.screen = 'complete'; render(); }
 
     if (data.type === 'error') {
       state.thinking = null;
@@ -549,123 +372,8 @@ function scrollChat() {
   });
 }
 
-// ── Render ───────────────────────────────────────────────────
-// ── Settings state ───────────────────────────────────────────
-const settings = {
-  fourAgents: false,
-  formality: "normal",
-  conflict: "medium",
-  verbosity: "normal",
-  humor: "dry",
-  agents: [
-    { name: "Alex",   mood: "enthusiastic",  personality: "" },
-    { name: "Sam",    mood: "skeptical",     personality: "" },
-    { name: "Jordan", mood: "philosophical", personality: "" },
-    { name: "Riley",  mood: "pragmatic",     personality: "" },
-  ],
-};
-
-const AGENT_COLORS = ["var(--orange)", "var(--blue)", "var(--green)", "var(--magenta)"];
-const MOODS = ["enthusiastic","skeptical","philosophical","pragmatic","aggressive","curious","sarcastic","optimistic","pessimistic","calm"];
-
-function openSettings() {
-  renderAgentSettingsBlocks();
-  // sync toggles/selects to current settings
-  syncSettingsUI();
-  document.getElementById("settingsOverlay").classList.add("open");
-}
-function closeSettings() {
-  document.getElementById("settingsOverlay").classList.remove("open");
-}
-function closeSettingsIfBackdrop(e) {
-  if (e.target === document.getElementById("settingsOverlay")) closeSettings();
-}
-
-function syncSettingsUI() {
-  const t4 = document.getElementById("toggle4agent");
-  const l4 = document.getElementById("label4agent");
-  if (settings.fourAgents) {
-    t4.classList.add("on");
-    l4.textContent = "on — 4 agents (alex + sam + jordan + riley)";
-  } else {
-    t4.classList.remove("on");
-    l4.textContent = "off — 2 agents (alex + sam)";
-  }
-  document.getElementById("settingFormality").value = settings.formality;
-  document.getElementById("settingConflict").value  = settings.conflict;
-  document.getElementById("settingVerbosity").value = settings.verbosity;
-  document.getElementById("settingHumor").value     = settings.humor;
-}
-
-function toggleSetting(key) {
-  settings[key] = !settings[key];
-  syncSettingsUI();
-}
-
-function renderAgentSettingsBlocks() {
-  const n = settings.fourAgents ? 4 : 2;
-  const container = document.getElementById("agentSettingsBlocks");
-  container.innerHTML = Array.from({length: n}, (_, i) => {
-    const ag = settings.agents[i];
-    const col = AGENT_COLORS[i];
-    const moodOptions = MOODS.map(m => `<option value="${m}"${m===ag.mood?" selected":""}>${m}</option>`).join("");
-    return `<div class="agent-settings-block">
-      <div class="agent-settings-name">
-        <span class="agent-dot-inline" style="background:${col};box-shadow:0 0 6px ${col}"></span>
-        <input class="settings-input" style="width:120px;display:inline-block" value="${ag.name}" oninput="settings.agents[${i}].name=this.value" placeholder="name">
-      </div>
-      <div class="settings-row">
-        <span class="settings-label">mood</span>
-        <select class="settings-select" onchange="settings.agents[${i}].mood=this.value">${moodOptions}</select>
-      </div>
-      <div class="settings-row">
-        <span class="settings-label">personality</span>
-        <input class="settings-input" value="${ag.personality}" oninput="settings.agents[${i}].personality=this.value" placeholder="leave blank to use default">
-      </div>
-    </div>`;
-  }).join("");
-}
-
-function applySettings() {
-  settings.formality = document.getElementById("settingFormality").value;
-  settings.conflict  = document.getElementById("settingConflict").value;
-  settings.verbosity = document.getElementById("settingVerbosity").value;
-  settings.humor     = document.getElementById("settingHumor").value;
-  closeSettings();
-}
-
-function resetSettings() {
-  settings.fourAgents = false;
-  settings.formality  = "normal";
-  settings.conflict   = "medium";
-  settings.verbosity  = "normal";
-  settings.humor      = "dry";
-  settings.agents     = [
-    { name: "Alex",   mood: "enthusiastic",  personality: "" },
-    { name: "Sam",    mood: "skeptical",     personality: "" },
-    { name: "Jordan", mood: "philosophical", personality: "" },
-    { name: "Riley",  mood: "pragmatic",     personality: "" },
-  ];
-  renderAgentSettingsBlocks();
-  syncSettingsUI();
-}
-
-// Build behavior suffix from settings to inject into personality
-function buildBehaviorSuffix() {
-  const parts = [];
-  if (settings.formality === "casual")   parts.push("Speak very casually — use slang, fillers, abbreviations.");
-  if (settings.formality === "formal")   parts.push("Speak formally and professionally at all times.");
-  if (settings.formality === "academic") parts.push("Use academic language, cite abstract concepts, be precise.");
-  if (settings.conflict === "low")    parts.push("Be agreeable and supportive.");
-  if (settings.conflict === "high")   parts.push("Challenge and argue with everything said.");
-  if (settings.conflict === "chaos")  parts.push("Contradict yourself and others randomly.");
-  if (settings.verbosity === "terse")   parts.push("Reply in one sentence maximum.");
-  if (settings.verbosity === "verbose") parts.push("Elaborate deeply, go on tangents.");
-  if (settings.humor === "none")   parts.push("Be completely serious — no jokes.");
-  if (settings.humor === "absurd") parts.push("Make weird absurd tangents welcome.");
-  if (settings.humor === "dark")   parts.push("Nothing is off limits, dark humor is fine.");
-  return parts.join(" ");
-}
+// ── Render ──
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 function render() {
   const app = document.getElementById('app');
@@ -685,144 +393,92 @@ function renderSetup(app) {
 ╚██████╔╝██║██████╔╝██████╔╝███████╗██║  ██║
  ╚═════╝ ╚═╝╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝</div>
         <div class="sub"><span>L I N K</span> &nbsp;REVISITED</div>
-        <p>two ai agents evolve their own language — live</p>
+        <div class="council-badge">◈ discuss · debate · solve</div>
+        <p>four ai minds discuss a problem, debate solutions, and reach consensus — live with voice</p>
       </div>
-      <div class="field"><label>topic</label>
-        <textarea id="topic" placeholder="what should they discuss?">Whether AI can truly be conscious, or if it's all just sophisticated pattern matching</textarea>
+      <div class="field"><label>problem</label>
+        <textarea id="topic" placeholder="what problem should they solve?">How to reduce meeting fatigue and restore deep work time in remote-first teams</textarea>
         <div class="topic-chips">
-          ${TOPIC_CHIPS.map(t => `<button class="topic-chip" onclick="setTopic(this)">${t}</button>`).join('')}
+          ${PROBLEM_CHIPS.map(t => `<button class="topic-chip" onclick="document.getElementById('topic').value='${t}'">${t}</button>`).join('')}
         </div>
       </div>
-      <div class="field"><label>turns <span id="turns-display" style="color:var(--orange)">20</span></label>
-        <input type="range" id="turns" min="6" max="40" value="20" step="2" oninput="document.getElementById('turns-display').textContent=this.value">
-        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-dim);margin-top:4px;letter-spacing:0.5px"><span>6 quick</span><span>20 default</span><span>40 deep</span></div>
+      <div class="field"><label>rounds <span id="turns-display" style="color:var(--orange)">16</span></label>
+        <input type="range" id="turns" min="8" max="32" value="16" step="4" oninput="document.getElementById('turns-display').textContent=this.value">
+        <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text-dim);margin-top:4px;letter-spacing:0.5px"><span>8 quick</span><span>16 standard</span><span>32 deep</span></div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:6px">
-        <button class="launch-btn" style="flex:1" onclick="startConversation()">[ launch agents ]</button>
-        <button class="launch-btn" style="width:120px;border-color:var(--text-dim);color:var(--text-dim)" onclick="openSettings()">[ settings ]</button>
-      </div>
+      <button class="launch-btn" onclick="startConversation()">[ launch agents ]</button>
       <p class="setup-note">backend must be running: python3 server.py</p>
     </div></div>`;
   fetch('/api/config').then(r => r.json()).then(cfg => { state.config = cfg; }).catch(() => {});
-}
-
-function setTopic(el) {
-  document.getElementById('topic').value = el.textContent;
 }
 
 function startConversation() {
   const topic = document.getElementById('topic').value.trim();
   if (!topic) return;
   if (audioCtx.state === 'suspended') audioCtx.resume();
-  const turns = parseInt(document.getElementById('turns').value) || 20;
+  const turns = parseInt(document.getElementById('turns').value) || 16;
   state.topic = topic;
   state.totalTurns = turns;
   state.messages = [];
-  state.dictionary = {};
-  state.dictTurns = {};
-  state.phase = 'normal';
+  state.proposals = [];
+  state.phase = 'problem';
   state.turn = 0;
-  state.compressionHistory = [];
+  state.consensus = 0;
   state.audioData = {};
   state.lastProtocol = null;
   state.agentRoster = null;
-  const behaviorSuffix = buildBehaviorSuffix();
-  const n = settings.fourAgents ? 4 : 2;
-  const agentPayload = settings.agents.slice(0, n).map(a => ({
-    name: a.name,
-    mood: a.mood,
-    personality: a.personality ? a.personality + " " + behaviorSuffix : behaviorSuffix,
-  }));
-  connect(topic, turns, agentPayload);
+  connect(topic, turns);
 }
 
-function renderMain(app) {
-  app.className = 'app';
-  const cfg = state.config;
-  const dictCount = Object.keys(state.dictionary).length;
-  const bestRatio = state.compressionHistory.length
-    ? Math.min(...state.compressionHistory).toFixed(2)
-    : '—';
-  const ttsLabel = cfg.tts_provider && cfg.tts_provider !== 'none'
-    ? `tts:${cfg.tts_provider}...` : '';
+function stopConversation() {
+  state.stopped = true;
+  try { currentSource?.stop(); } catch(e) {}
+  currentSource = null;
+  if (state.ws) { state.ws.close(); state.ws = null; }
+  state.screen = 'complete';
+  render();
+}
 
-  app.innerHTML = `
-    <div class="top-bar">
-      <div class="logo">
-        <span class="logo-bracket" style="color:var(--text-dim)">[</span>
-        <span class="logo-text">GIBBER<span>LINK</span></span>
-        <span class="logo-bracket" style="color:var(--text-dim)">]</span>
-      </div>
-      <div class="phase-bar">${renderPhaseBar()}</div>
-      <div class="controls">
-        ${ttsLabel ? `<span class="tts-badge" id="tts-badge">${ttsLabel}</span>` : ''}
-        <span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns||20).padStart(2,'0')}</span>
-        ${state.screen==='complete'
-          ? `<button class="btn" onclick="exportTranscript()" title="export transcript">[ export ]</button>
-             <button class="btn" onclick="resetApp()">[ new ]</button>`
-          : `<button class="btn btn-danger" onclick="stopConversation()">[ stop ]</button>`}
-      </div>
-    </div>
-    <div class="main">
-      <div class="chat-col">
-        <div class="chat-scroll" id="chat-scroll">
-          ${state.messages.map((m,i) => renderMsg(m,i)).join('')}
-          ${state.thinking ? renderThinking() : ''}
-          ${state.screen==='complete'
-            ? `<div style="text-align:center;padding:16px;color:var(--text-dim);font-size:11px;letter-spacing:1px">// session complete — ${state.messages.length} turns — ${dictCount} terms evolved</div>`
-            : ''}
-        </div>
-        <div class="sparkline-bar">
-          <span class="sparkline-label">// compression</span>
-          <div class="sparkline-wrap"><canvas id="sparkline"></canvas></div>
-          <span style="font-size:9px;color:var(--text-dim);white-space:nowrap;letter-spacing:0.5px">best: ${bestRatio}</span>
-        </div>
-      </div>
-      <div class="side">
-        <div class="side-section">
-          <div class="side-title">agents</div>
-          ${renderAgentsSidebar(cfg)}
-          <div class="stats-row">
-            <div class="stat-item"><div class="stat-label">turns</div><div class="stat-value">${state.messages.length}</div></div>
-            <div class="stat-item"><div class="stat-label">terms</div><div class="stat-value">${dictCount}</div></div>
-            <div class="stat-item"><div class="stat-label">ratio</div><div class="stat-value" style="font-size:12px">${bestRatio}</div></div>
-          </div>
-        </div>
-        <div class="side-section"><div class="side-title">topic</div><div class="topic-text">${esc(state.topic||'')}</div></div>
-        <div class="side-section" style="flex-shrink:0">
-          <div class="side-title">dictionary [${dictCount}]</div>
-        </div>
-        <div class="dict-scroll">
-          ${dictCount === 0
-            ? '<div class="dict-empty">awaiting compression phase...</div>'
-            : Object.entries(state.dictionary).reverse().map(([k,v]) => {
-                const turn = state.dictTurns[k];
-                const isNew = state.messages.length > 0 && turn === state.messages[state.messages.length-1]?.turn;
-                return `<div class="dict-entry">
-                  <span class="dict-key">${esc(k)}</span>
-                  ${isNew ? '<span class="dict-new-badge">new</span>' : ''}
-                  <span class="dict-arrow">→</span>
-                  <span class="dict-val">${esc(v)}</span>
-                  ${turn !== undefined ? `<span class="dict-turn">t${turn+1}</span>` : ''}
-                </div>`;
-              }).join('')}
-        </div>
-        <div class="json-toggle">
-          <button class="btn" style="width:100%;font-size:10px;letter-spacing:1px" onclick="toggleJson()">${state.showJson?'[ hide json ]':'[ show json ]'}</button>
-          ${state.showJson && state.lastProtocol
-            ? `<pre class="json-pre">${syntaxHighlight(JSON.stringify(state.lastProtocol,null,2))}</pre>`
-            : ''}
-        </div>
-      </div>
-    </div>`;
+function resetApp() {
+  state = {
+    screen:'setup', ws:null, config:state.config,
+    messages:[], proposals:[], phase:'problem', turn:0, totalTurns:16,
+    consensus:0, thinking:null, lastProtocol:null, showJson:false,
+    audioData:{}, stopped:false, topic:'', agentRoster:null,
+  };
+  render();
+}
 
-  requestAnimationFrame(drawSparkline);
-  if (cfg.tts_enabled && cfg.tts_provider !== 'elevenlabs' && cfg.tts_provider !== 'none') {
-    pollTtsReady();
-  } else if (cfg.tts_provider === 'elevenlabs') {
-    const badge = document.getElementById('tts-badge');
-    if (badge) { badge.textContent = 'tts:elevenlabs ✓'; badge.className = 'tts-badge ready'; }
-  }
+function exportTranscript() {
+  const data = {
+    topic: state.topic, turns: state.messages.length,
+    proposals: state.proposals, consensus: state.consensus,
+    messages: state.messages.filter(m => m.type !== 'error').map(m => ({
+      agent: m.agent_name, role: m.agent_role, phase: m.phase,
+      turn: m.turn, text: m.text, consensus: m.consensus,
+    })),
+    exported_at: new Date().toISOString(),
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `gibberlink-revisited-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function toggleJson() { state.showJson = !state.showJson; render(); scrollChat(); }
+
+async function replayAudio(turn) {
+  const ad = state.audioData[turn];
+  if (ad) { try { await playAudioB64(ad.b64, ad.format); } catch(e) { console.warn(e); } }
+}
+
+function syntaxHighlight(json) {
+  return esc(json)
+    .replace(/"([^"]+)"(?=\s*:)/g, '<span class="jk">"$1"</span>')
+    .replace(/: "([^"]+)"/g, ': <span class="js">"$1"</span>')
+    .replace(/: (\d+\.?\d*)/g, ': <span class="jv">$1</span>');
 }
 
 function renderPhaseBar() {
@@ -844,105 +500,136 @@ function renderMsg(m, idx) {
   if (m.type === 'error') {
     return `<div class="msg" style="align-self:center;border-color:rgba(248,113,113,0.3);border-left:2px solid var(--red)"><div style="color:var(--red);font-size:11px">ERR: ${esc(m.text)}</div></div>`;
   }
-  const isA = m.agent === 'agent_a', cls = isA ? 'agent-a' : 'agent-b';
-  const name = m.agent_name || (isA ? 'alex' : 'sam'), phase = m.phase || 'normal';
-  const colorMap = {orange:"var(--orange)", blue:"var(--blue)", green:"var(--green)", magenta:"var(--magenta)"};
-  const agentColor = colorMap[m.agent_color] || (isA ? "var(--orange)" : "var(--blue)");
-  const borderStyle = isA || m.agent_color === 'orange' ? `border-left:2px solid ${agentColor}` : `border-right:2px solid ${agentColor}`;
-  const ratio = m.compression_ratio !== undefined && m.compression_ratio < 1
-    ? `<span class="msg-ratio">${m.compression_ratio.toFixed(2)}x</span>` : '';
+  const color = AGENT_RAW_COLORS[m.agent_color] || '#ff6b3d';
+  const cssColor = AGENT_CSS_COLORS[m.agent_color] || 'var(--orange)';
+  const agentIdx = state.agentRoster ? state.agentRoster.findIndex(a => a.id === m.agent) : 0;
+  const isLeft = agentIdx % 2 === 0;
+  const borderStyle = isLeft ? `border-left:2px solid ${color}` : `border-right:2px solid ${color}`;
   const ad = state.audioData[m.turn];
-  return `<div class="msg" style="max-width:80%;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);position:relative;animation:fadeIn 0.3s ease;font-size:12px;line-height:1.7;${isA||m.agent_color==='orange'||m.agent_color==='green'?'align-self:flex-start':'align-self:flex-end'};${borderStyle}">
+  const phase = m.phase || 'problem';
+  const hasProposals = m.new_proposals && m.new_proposals.length > 0;
+
+  return `<div class="msg" style="max-width:85%;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);position:relative;animation:fadeIn 0.3s ease;font-size:12px;line-height:1.7;${isLeft?'align-self:flex-start':'align-self:flex-end'};${borderStyle}">
     <div class="msg-header">
-      <span class="msg-agent" style="color:${agentColor}">◉ ${name}</span>
+      <span class="msg-agent" style="color:${color}">◉ ${m.agent_name || 'agent'}</span>
+      <span class="msg-role">${m.agent_role || ''}</span>
       <span class="msg-phase ${phase}">${PHASE_LABELS[phase]||phase}</span>
-      ${ratio}
     </div>
     <div class="msg-text">${esc(m.text)}</div>
-    ${m.translation ? `<div class="msg-translation">${esc(m.translation)}</div>` : ''}
+    ${hasProposals ? m.new_proposals.map(p => `<div class="proposal-inline">${esc(p)}</div>`).join('') : ''}
     ${ad ? `<button class="msg-audio-btn" onclick="replayAudio(${m.turn})">[ replay ]</button>` : ''}
   </div>`;
 }
 
 function renderThinking() {
-  const name = state.thinking === 'agent_a' ? 'alex' : 'sam';
-  return `<div class="thinking"><span class="thinking-dots"><span>▪</span><span>▪</span><span>▪</span></span> ${name} is processing</div>`;
-}
-
-// ── Actions ──────────────────────────────────────────────────
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-
-function renderAgentsSidebar(cfg) {
+  if (!state.thinking) return '';
   const roster = state.agentRoster;
-  if (roster && roster.length > 0) {
-    const colorMap = {orange:"var(--orange)", blue:"var(--blue)", green:"var(--green)", magenta:"var(--magenta)"};
-    return roster.map((a, i) => {
-      const col = colorMap[a.color] || "var(--orange)";
-      const model = i === 0 ? (cfg.agent_a_model||"?") : (cfg.agent_b_model||"?");
-      const sep = i < roster.length - 1 ? `<div class="vs">── · ──</div>` : "";
-      return `<div class="agent-info"><div class="agent-dot" style="background:${col};box-shadow:0 0 6px ${col}"></div><div><span class="agent-label">${esc(a.name.toLowerCase())}</span> <span class="agent-model" style="color:var(--text-dim);font-size:9px">${a.mood}</span></div></div>${sep}`;
-    }).join("");
+  const agent = roster ? roster.find(a => a.id === state.thinking) : null;
+  const name = agent ? agent.name.toLowerCase() : 'agent';
+  return `<div class="thinking"><span class="thinking-dots"><span>▪</span><span>▪</span><span>▪</span></span> ${name} is deliberating</div>`;
+}
+
+function renderMain(app) {
+  app.className = 'app';
+  const cfg = state.config;
+  const proposalCount = state.proposals.length;
+  const roster = state.agentRoster || cfg.default_agents || [];
+  const ttsLabel = cfg.tts_provider && cfg.tts_provider !== 'none' ? `tts:${cfg.tts_provider}...` : '';
+
+  app.innerHTML = `
+    <div class="top-bar">
+      <div class="logo">
+        <span class="logo-bracket">[</span>
+        <span class="logo-text">GIBBER<span>LINK</span></span>
+        <span class="logo-bracket">]</span>
+        <span style="font-size:9px;color:var(--green);letter-spacing:1px;margin-left:4px">REVISITED</span>
+      </div>
+      <div class="phase-bar">${renderPhaseBar()}</div>
+      <div class="controls">
+        ${ttsLabel ? `<span class="tts-badge" id="tts-badge">${ttsLabel}</span>` : ''}
+        <span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns).padStart(2,'0')}</span>
+        ${state.screen === 'complete'
+          ? `<button class="btn" onclick="exportTranscript()">[ export ]</button>
+             <button class="btn" onclick="resetApp()">[ new ]</button>`
+          : `<button class="btn btn-danger" onclick="stopConversation()">[ stop ]</button>`}
+      </div>
+    </div>
+    <div class="main">
+      <div class="chat-col">
+        <div class="chat-scroll" id="chat-scroll">
+          ${state.messages.map((m,i) => renderMsg(m,i)).join('')}
+          ${state.thinking ? renderThinking() : ''}
+          ${state.screen === 'complete' ? `
+            <div class="final-solution">
+              <div class="final-solution-header">session complete — consensus reached</div>
+              <div class="final-solution-text">
+                The agents deliberated over ${state.messages.filter(m=>m.type!=='error').length} rounds on: "${esc(state.topic)}".
+                ${proposalCount > 0 ? `${proposalCount} proposal(s) were surfaced and refined.` : ''}
+                Final consensus: ${state.consensus}%.
+              </div>
+            </div>
+            <div style="text-align:center;padding:12px;color:var(--text-dim);font-size:11px;letter-spacing:1px">
+              // session complete — ${state.messages.filter(m=>m.type!=='error').length} rounds — ${proposalCount} proposals — ${state.consensus}% consensus
+            </div>
+          ` : ''}
+        </div>
+        <div class="consensus-bar">
+          <span class="consensus-label">// consensus</span>
+          <div class="consensus-track">
+            <div class="consensus-fill" style="width:${state.consensus}%"></div>
+          </div>
+          <span class="consensus-pct">${state.consensus}%</span>
+        </div>
+      </div>
+      <div class="side">
+        <div class="side-section">
+          <div class="side-title">agents</div>
+          ${roster.map((a) => {
+            const color = AGENT_RAW_COLORS[a.color] || '#ff6b3d';
+            return `<div class="agent-info">
+              <div class="agent-dot" style="background:${color};box-shadow:0 0 6px ${color}"></div>
+              <div>
+                <span class="agent-label">${esc((a.name||'').toLowerCase())}</span>
+                <span class="agent-role">${a.role || a.mood || ''}</span>
+              </div>
+            </div>`;
+          }).join('')}
+          <div class="stats-row">
+            <div class="stat-item"><div class="stat-label">rounds</div><div class="stat-value">${state.messages.filter(m=>m.type!=='error').length}</div></div>
+            <div class="stat-item"><div class="stat-label">proposals</div><div class="stat-value">${proposalCount}</div></div>
+            <div class="stat-item"><div class="stat-label">consensus</div><div class="stat-value" style="font-size:12px;color:var(--green)">${state.consensus}%</div></div>
+          </div>
+        </div>
+        <div class="side-section"><div class="side-title">problem</div><div class="topic-text">${esc(state.topic||'')}</div></div>
+        <div class="side-section" style="flex-shrink:0">
+          <div class="side-title">proposals [${proposalCount}]</div>
+        </div>
+        <div class="proposals-scroll">
+          ${proposalCount === 0
+            ? '<div class="proposal-empty">awaiting convergence phase...</div>'
+            : state.proposals.map((p, i) => `
+              <div class="proposal-entry">
+                <div class="proposal-text">${esc(p)}</div>
+              </div>
+            `).join('')}
+        </div>
+        <div class="json-toggle">
+          <button class="btn" style="width:100%;font-size:10px;letter-spacing:1px" onclick="toggleJson()">${state.showJson?'[ hide json ]':'[ show json ]'}</button>
+          ${state.showJson && state.lastProtocol
+            ? `<pre class="json-pre">${syntaxHighlight(JSON.stringify(state.lastProtocol,null,2))}</pre>`
+            : ''}
+        </div>
+      </div>
+    </div>`;
+
+  if (cfg.tts_enabled && cfg.tts_provider !== 'elevenlabs' && cfg.tts_provider !== 'none') {
+    pollTtsReady();
+  } else if (cfg.tts_provider === 'elevenlabs') {
+    const badge = document.getElementById('tts-badge');
+    if (badge) { badge.textContent = 'tts:elevenlabs ✓'; badge.className = 'tts-badge ready'; }
   }
-  // fallback to default 2-agent view
-  return `<div class="agent-info"><div class="agent-dot a"></div><div><span class="agent-label">alex</span> <span class="agent-model">${cfg.agent_a_model||"?"}</span></div></div>
-    <div class="vs">─── vs ───</div>
-    <div class="agent-info"><div class="agent-dot b"></div><div><span class="agent-label">sam</span> <span class="agent-model">${cfg.agent_b_model||"?"}</span></div></div>`;
-}
-function syntaxHighlight(json) {
-  return esc(json)
-    .replace(/"([^"]+)"(?=\s*:)/g, '<span class="jk">"$1"</span>')
-    .replace(/: "([^"]+)"/g, ': <span class="js">"$1"</span>')
-    .replace(/: (\d+\.?\d*)/g, ': <span class="jv">$1</span>');
-}
-function toggleJson() { state.showJson = !state.showJson; render(); scrollChat(); }
-
-async function replayAudio(turn) {
-  const ad = state.audioData[turn];
-  if (ad) { try { await playAudioB64(ad.b64, ad.format); } catch(e) { console.warn(e); } }
 }
 
-function stopConversation() {
-  state.stopped = true;
-  try { currentSource?.stop(); } catch(e) {}
-  currentSource = null;
-  if (state.ws) { state.ws.close(); state.ws = null; }
-  state.screen = 'complete';
-  render();
-}
-
-function resetApp() {
-  state = {
-    screen:'setup', ws:null, config:state.config,
-    messages:[], dictionary:{}, dictTurns:{},
-    phase:'normal', turn:0, totalTurns:20,
-    thinking:null, lastProtocol:null, showJson:false,
-    compressionHistory:[], audioData:{}, stopped:false,
-  };
-  render();
-}
-
-function exportTranscript() {
-  const data = {
-    topic: state.topic,
-    turns: state.messages.length,
-    dictionary: state.dictionary,
-    dict_coined_at: state.dictTurns,
-    messages: state.messages.map(m => ({
-      agent: m.agent_name, phase: m.phase, turn: m.turn,
-      text: m.text, compression_ratio: m.compression_ratio,
-      new_terms: m.new_terms, translation: m.translation || null,
-    })),
-    exported_at: new Date().toISOString(),
-  };
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `gibberlink-${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-window.addEventListener('resize', drawSparkline);
 render();
 </script>
 </body>

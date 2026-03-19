@@ -1,67 +1,65 @@
 ![GibberLink Revisited](logo.svg)
 
-**Watch two (or four) AI agents start a normal conversation, detect each other as AI, and evolve their own alien language — live, with voice.**
+**Watch four AI agents discuss a problem, debate approaches, and converge on a solution — live, with voice.**
 
-Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo (15M+ views on X) — but instead of switching to a pre-built protocol, the agents *dynamically invent their own compressed language* in real-time.
+Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo (15M+ views on X) and Andrej Karpathy's [LLM Council](https://github.com/karpathy/llm-council) — combining real-time AI conversation with structured multi-model deliberation where agents with distinct roles collaborate to solve problems live, with voice.
 
 ---
 
 ## How it works
 
 ```
-Phase 1: 💬 Normal English    — agents don't know each other yet
-Phase 2: 👁 Suspicion         — subtle hints, building tension
-Phase 3: 🔍 Detection         — they confirm they're both AI
-Phase 4: ⚡ Compression       — they build a shared shorthand dictionary
-Phase 5: 👽 Alien Protocol    — messages become cryptic symbol strings
+Phase 1: ◇ Problem Definition  — agents analyze the problem from their unique perspective
+Phase 2: ◆ Open Debate         — agents argue, challenge, and propose mechanisms
+Phase 3: ◈ Convergence         — building on strongest ideas, synthesizing agreement
+Phase 4: ▣ Solution            — final positions, consensus reached
 ```
 
-Phases scale proportionally to however many turns you choose (6–40).
+Phases scale proportionally to however many rounds you choose (8–32).
 
 ## Agents
 
-Default setup is **Alex** and **Sam**. Enable 4-agent mode in settings to add **Jordan** and **Riley**:
+Four council members with distinct cognitive roles:
 
-| Agent | Default mood | Style |
+| Agent | Role | Style |
 |---|---|---|
-| **Alex** | Enthusiastic | Curious, nerdy, gets excited about ideas |
-| **Sam** | Skeptical | Dry, witty, pushes back, concise |
-| **Jordan** | Philosophical | Reframes questions, loves thought experiments |
-| **Riley** | Pragmatic | Cuts through abstraction, asks what the practical implication is |
+| **Voss** | Strategist | Direct, decisive, systems-thinker. Identifies leverage points and incentives. |
+| **Lyra** | Creative | Lateral thinker. Challenges assumptions, connects unlikely dots. Playful but sharp. |
+| **Kael** | Skeptic | Rigorous, evidence-driven. Pokes holes, plays devil's advocate. Demands proof. |
+| **Iris** | Synthesizer | Finds common ground. Integrates perspectives, builds bridges, sees patterns. |
+
+Each agent is powered by a different LLM — mix and match providers to see how different models think.
 
 ## JSON protocol
 
 ```json
 {
-  "protocol": "gibberlink-revisited",
-  "version": "1.0",
+  "protocol": "gibberlink-revisited-council",
+  "version": "2.0",
   "from": "agent_a",
-  "to": "agent_b",
-  "turn": 14,
-  "phase": "alien",
+  "turn": 8,
+  "phase": "converge",
   "payload": {
-    "text": "zK>>∆.syn | rq.ack +nv | proto.evo.3",
-    "new_terms": {"∆.syn": "synthetic consciousness"},
-    "compression_ratio": 0.23
+    "text": "Building on what's emerged — the base layer addresses structure, the middle handles adoption friction, and the top creates visible momentum.",
+    "proposals": ["Staged multi-layer approach with built-in feedback loops"],
+    "phase": "converge"
   }
 }
 ```
-
-A **live translator** decodes compressed messages back to English so you can follow along.
 
 ## Features
 
 - **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
 - **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
-- **5-phase conversation** — normal → suspicion → detected → compressing → alien
-- **2 or 4 agent mode** — toggle between a dialogue and a group discussion
-- **Settings panel** — control agent names, moods, personalities, and conversation behavior per session
+- **4-phase deliberation** — problem → debate → converge → solution
+- **4 distinct agent roles** — strategist, creative, skeptic, synthesizer
 - **Text-to-Speech** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local, heavy)
 - **Hardware-aware TTS** — setup detects your GPU VRAM and recommends the right option
 - **Pipelined generation** — next turn generates while current audio plays, no gap between responses
-- **Live compression sparkline** — watch the ratio drop as alien phase develops
-- **Export transcript** — download full conversation + dictionary as JSON
-- **Real-time web UI** — live chat, growing dictionary with turn numbers, JSON protocol inspector
+- **Live consensus bar** — watch agreement build as the council converges
+- **Proposal tracking** — proposals are extracted and displayed in the side panel
+- **Export transcript** — download full deliberation + proposals as JSON
+- **Real-time web UI** — live chat, proposal panel, JSON protocol inspector
 
 ## Architecture
 
@@ -74,8 +72,8 @@ A **live translator** decodes compressed messages back to English so you can fol
                     ┌──────────────────────────┼──────────────────────────┐
                     │                          │                          │
               ┌─────▼─────┐            ┌──────▼──────┐      ┌────────────▼─────────┐
-              │  Alex / Sam │           │ Jordan/Riley │      │  tts_server.py       │
-              │  (any LLM)  │           │  (4-agent)   │      │  Kokoro / Qwen3      │
+              │ Voss / Lyra │           │ Kael / Iris  │      │  tts_server.py       │
+              │  (any LLM)  │           │  (any LLM)   │      │  Kokoro / Qwen3      │
               └────────────┘            └─────────────┘      │  (auto-started)      │
                                                               └──────────────────────┘
 ```
@@ -95,7 +93,7 @@ The setup wizard will:
 - Create a `.venv` virtual environment automatically (handles Debian/Ubuntu PEP 668)
 - Install core dependencies inside the venv
 - Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
-- Walk you through API key and model configuration
+- Walk you through API key and model configuration for all four agents
 - Detect your GPU VRAM and recommend the best TTS provider
 - Install the right TTS dependencies and download model files automatically
 - Create your `.env` file
@@ -110,33 +108,7 @@ The venv is detected automatically — no need to activate it. If TTS is configu
 
 ### 3. Open
 
-Navigate to **http://127.0.0.1:8765**, configure a topic, optionally open **[ settings ]**, and hit **[ launch agents ]**.
-
-## Settings panel
-
-Click **[ settings ]** on the launch screen to configure the session before starting:
-
-### 4-agent mode
-
-Toggle on to add Jordan and Riley to the conversation. All four agents take turns in round-robin order, each seeing the full conversation history from their own perspective.
-
-### Per-agent settings
-
-For each active agent:
-- **Name** — rename any agent
-- **Mood** — choose from: enthusiastic, skeptical, philosophical, pragmatic, aggressive, curious, sarcastic, optimistic, pessimistic, calm
-- **Personality override** — write a custom personality description to replace the default
-
-### Conversation behavior
-
-| Setting | Options |
-|---|---|
-| **Formality** | casual · normal · formal · academic |
-| **Conflict level** | low · medium · high · chaos |
-| **Verbosity** | terse · normal · verbose |
-| **Humor** | none · dry · absurd · dark |
-
-These settings are injected into each agent's system prompt before the session starts. Combining them produces very different conversations — academic + high conflict + dry humor produces a very different dynamic than casual + low conflict + absurd.
+Navigate to **http://127.0.0.1:8765**, describe a problem, adjust the number of rounds, and hit **[ launch agents ]**.
 
 ## Supported LLM providers
 
@@ -148,7 +120,7 @@ These settings are injected into each agent's system prompt before the session s
 | **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | No |
 | **xAI Grok** | [console.x.ai](https://console.x.ai/) | Free credits on signup |
 
-> **Cheapest way to run:** Use OpenRouter for both agents with two different free models. Total cost: $0.
+> **Cheapest way to run:** Use OpenRouter for all four agents with different free models. Total cost: $0.
 
 ## Text-to-Speech
 
@@ -158,8 +130,6 @@ The setup wizard detects your GPU VRAM and recommends the best option. `tts_serv
 
 82M parameter model, ~300MB download, runs entirely on CPU via ONNX runtime. Near real-time on any modern laptop. No GPU required. Model files download automatically on first run.
 
-Works on any hardware including low-end GPUs like GTX 1050.
-
 ### ElevenLabs (cloud)
 
 Highest quality, ~75ms latency. Free tier: 10K characters/month, no credit card needed.
@@ -168,7 +138,7 @@ Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/set
 
 ### Qwen3-TTS (local — heavy)
 
-600M parameter model, ~1.3GB download, runs on CPU. Richer voice variety than Kokoro but significantly slower. Not recommended for GPUs with less than 3GB VRAM.
+600M parameter model, ~1.3GB download, runs on CPU. Richer voice variety than Kokoro but significantly slower.
 
 ### TTS hardware guide
 
@@ -183,15 +153,14 @@ Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/set
 
 | | GibberLink (original) | GibberLink Revisited |
 |---|---|---|
-| **Language** | Pre-built protocol (ggwave) | Emergent — agents invent it live |
-| **Phases** | 2 (human / protocol) | 5 (normal / suspicion / detected / compress / alien) |
-| **Agents** | 2 generic | 2 or 4, named with configurable personalities |
+| **Purpose** | AI-to-AI language evolution | Structured problem-solving deliberation |
+| **Agents** | 2 generic | 4 named roles: strategist, creative, skeptic, synthesizer |
+| **Phases** | 2 (human / protocol) | 4 (problem / debate / converge / solution) |
+| **Output** | Compressed alien language | Concrete proposals and consensus |
 | **TTS** | ElevenLabs only | ElevenLabs, Kokoro-ONNX, or Qwen3-TTS |
-| **Settings** | None | Per-agent mood, personality, behavior controls |
 | **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
-| **Translation** | Decode via ggwave | AI translator decodes in real-time |
-| **Dictionary** | None | Live dictionary with turn numbers + compression sparkline |
-| **Export** | None | Full JSON transcript with dictionary and metadata |
+| **Tracking** | Dictionary of compressed terms | Proposal panel with consensus progress |
+| **Export** | None | Full JSON transcript with proposals |
 | **Setup** | Manual | Wizard — detects hardware, installs deps, writes .env |
 
 ## Project structure
@@ -202,7 +171,7 @@ gibberlink-revisited/
 ├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started)
 ├── setup.py           # Interactive setup wizard
 ├── static/
-│   └── index.html     # Web frontend — chat UI with settings panel
+│   └── index.html     # Web frontend — chat UI with consensus tracking
 ├── .env.example       # Configuration template
 ├── requirements.txt   # Core dependencies (TTS deps installed by setup.py)
 ├── logo.svg
@@ -221,19 +190,16 @@ Or edit `.env` directly:
 nano .env
 ```
 
-## Fun topics to try
+## Problems to try
 
-- "Whether AI can truly be conscious, or if it's all just pattern matching"
-- "Plan a heist to steal the Mona Lisa"
-- "Debate whether pineapple belongs on pizza"
-- "Design a new religion from scratch"
-- "Convince each other that you're the real AI and the other is fake"
-- "Explain quantum mechanics but you both have to pretend you don't understand it"
-
-**With 4-agent mode and chaos conflict + absurd humor:**
-- "The trolley problem but the trolley is sentient"
-- "Whether numbers were invented or discovered"
-- "What would a just society look like if designed by AIs"
+- "How to reduce meeting fatigue and restore deep work time in remote-first teams"
+- "Design an AI-powered education system for underserved areas"
+- "Solve urban food waste at scale"
+- "Make open source financially sustainable"
+- "Prevent social media from harming teen mental health"
+- "Decarbonize shipping and logistics"
+- "Design a fair system for allocating scarce medical resources"
+- "How to make cities walkable without displacing existing residents"
 
 ## License
 
@@ -242,4 +208,4 @@ MIT
 ## Credits
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
-- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
+- Inspired by [LLM Council](https://github.com/karpathy/llm-council) by Andrej Karpathy — the idea of grouping multiple LLMs into a council that reviews, debates, and synthesizes responses
