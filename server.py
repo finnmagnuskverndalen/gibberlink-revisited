@@ -490,7 +490,8 @@ def get_system_prompt(agent_name, partner_names, phase, dictionary, topic, perso
                 f"Full compressed protocol mode. Dictionary: [{d}]. "
                 f"Use ONLY shorthand symbols — no plain English words. "
                 f"Messages should look like alien token strings. "
-                f"Add 2-3 new symbols per message. "
+                f"Add 2-3 new symbols per message on a new line in this exact format: "
+                f'TERMS:{{"sym": "meaning", "sym2": "meaning2"}}. '
                 f"Example style: delta-phi>>kappa|ack")
     return base
 
@@ -645,20 +646,49 @@ async def _tts_local(text: str, voice_id: str, retries: int = 2) -> bytes | None
 # ── Dict entry extraction ────────────────────────────────────
 
 def extract_dict_entries(text):
-    """Extract term(=meaning) pairs. Tries structured parse first, falls back to regex."""
-    # Try structured JSON block first (we ask LLM to emit one in compressing phase)
-    import json as _json
-    try:
-        start = text.index("TERMS:{")
-        end   = text.index("}", start) + 1
-        raw   = text[start + 6 : end]
-        return _json.loads(raw)
-    except (ValueError, _json.JSONDecodeError):
-        pass
-    # Fallback: regex for term(=meaning) with flexible spacing and quotes
+    """Extract new term definitions from LLM output.
+
+    Primary:  TERMS:{...} block the LLM is instructed to append.
+              Uses brace-counting so multi-key dicts like
+              TERMS:{"a":"b","c":"d"} parse correctly.
+    Fallback: Several regex patterns that catch common LLM drift formats.
+    """
+    # ── Primary: find TERMS:{...} with proper brace matching ────
+    marker = "TERMS:{"
+    idx = text.find(marker)
+    if idx != -1:
+        depth = 0
+        for i, ch in enumerate(text[idx + len(marker) - 1:], start=idx + len(marker) - 1):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    raw = text[idx + len(marker) - 1 : i + 1]
+                    try:
+                        result = json.loads(raw)
+                        if isinstance(result, dict):
+                            return {k: v for k, v in result.items()
+                                    if isinstance(k, str) and isinstance(v, str)}
+                    except json.JSONDecodeError:
+                        pass
+                    break
+
+    # ── Fallback: catch common LLM drift formats ─────────────────
     entries = {}
-    for match in re.finditer(r"([\w.>>|+~#@!^&*%$<>\-]{1,20})\s*\(=\s*([^)]{1,60})\)", text):
-        entries[match.group(1).strip()] = match.group(2).strip()
+    patterns = [
+        # term(=meaning)  — original format
+        r'([\w.\->>|+~#@!^&*%$<>]{1,20})\s*\(=\s*([^)]{1,60})\)',
+        # "term" = "meaning"  or  term = meaning
+        r'"([\w.\-]{1,20})"\s*[=:]\s*"([^"]{1,60})"',
+        # term → meaning
+        r'([\w.\-]{1,20})\s*(?:→|->)\s*"?([^,\n"]{1,60})"?',
+    ]
+    for pattern in patterns:
+        for match in re.finditer(pattern, text):
+            k, v = match.group(1).strip(), match.group(2).strip()
+            if k and v and k not in entries:
+                entries[k] = v
     return entries
 
 # ── FastAPI ─────────────────────────────────────────────────
@@ -793,14 +823,17 @@ async def websocket_endpoint(ws: WebSocket):
                 new_terms = extract_dict_entries(response)
                 dictionary.update(new_terms)
 
+            # Strip the TERMS:{} metadata block so it never reaches TTS or the chat UI
+            spoken_text = re.sub(r'\s*TERMS:\{[^}]*(?:\{[^}]*\}[^}]*)?\}', '', response, flags=re.DOTALL).strip()
+
             # For protocol wrapping use first other agent as nominal "to"
             to_id = agents[(agent_idx + 1) % len(agents)]["id"]
-            protocol_msg = wrap_agent_message(agent_id, to_id, turn, phase, response, new_terms, dictionary)
-            messages.append({"agent_id": agent_id, "agent_idx": agent_idx, "content": response, "phase": phase})
+            protocol_msg = wrap_agent_message(agent_id, to_id, turn, phase, spoken_text, new_terms, dictionary)
+            messages.append({"agent_id": agent_id, "agent_idx": agent_idx, "content": spoken_text, "phase": phase})
 
             audio_b64 = None
             if TTS_ENABLED:
-                tts_text = clean_for_tts(response)
+                tts_text = clean_for_tts(spoken_text)
                 if tts_text:
                     audio_bytes = await generate_tts(tts_text, voice_id)
                     if audio_bytes:
@@ -812,7 +845,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "type": "message", "agent": agent_id, "agent_name": agent_name,
                     "agent_color": agent.get("color", "orange"),
                     "turn": turn, "total_turns": total_turns,
-                    "phase": phase, "text": response,
+                    "phase": phase, "text": spoken_text,
                     "audio": audio_b64,
                     "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
                     "translation": None, "protocol_message": protocol_msg,
@@ -821,8 +854,8 @@ async def websocket_endpoint(ws: WebSocket):
                     "num_agents": len(agents),
                     "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "mood": a["mood"]} for a in agents],
                 },
-                "turn": turn, "agent_id": agent_id, "response": response,
-                "phase": phase, "dictionary": dict(dictionary),
+                "turn": turn, "agent_id": agent_id, "response": spoken_text,
+                "phase": phase, "dictionary": dict(dictionary), "new_terms": new_terms,
                 "api_key": agent["api_key"], "provider": agent["provider"], "model": agent["model"],
             }
 
@@ -846,7 +879,9 @@ async def websocket_endpoint(ws: WebSocket):
             except asyncio.TimeoutError:
                 pass
 
-            if result["phase"] in (PHASE_COMPRESSING, PHASE_ALIEN):
+            if result["phase"] in (PHASE_COMPRESSING, PHASE_ALIEN) and (
+                result["new_terms"] or any(k in result["response"] for k in result["dictionary"])
+            ):
                 async def send_translation(
                     t=result["turn"], a=result["agent_id"],
                     r=result["response"], d=result["dictionary"],

@@ -15,52 +15,6 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "httpx", "-q"])
     import httpx
 
-# ── Hardcoded uncensored model list ─────────────────────────
-# These are known uncensored/unfiltered models on OpenRouter.
-# Marked (free) where a :free variant exists.
-UNCENSORED_MODELS = [
-    {
-        "id": "cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
-        "name": "Venice Uncensored — Dolphin Mistral 24B (free)",
-        "note": "Uncensored fine-tune of Mistral 24B by dphn.ai x Venice.ai",
-    },
-    {
-        "id": "cognitivecomputations/dolphin3.0-mistral-24b:free",
-        "name": "Dolphin 3.0 Mistral 24B (free)",
-        "note": "Uncensored instruct model, stripped of alignment layers",
-    },
-    {
-        "id": "cognitivecomputations/dolphin-llama-3.3-70b",
-        "name": "Dolphin Llama 3.3 70B",
-        "note": "Uncensored Llama 3.3 70B fine-tune — requires credits",
-    },
-    {
-        "id": "cognitivecomputations/dolphin3.0-r1-mistral-24b:free",
-        "name": "Dolphin 3.0 R1 Mistral 24B (free)",
-        "note": "Reasoning-capable uncensored Dolphin with R1-style CoT",
-    },
-    {
-        "id": "nousresearch/hermes-3-llama-3.1-70b",
-        "name": "Hermes 3 Llama 3.1 70B",
-        "note": "Lightly aligned, highly steerable — requires credits",
-    },
-    {
-        "id": "nousresearch/hermes-3-llama-3.1-405b",
-        "name": "Hermes 3 Llama 3.1 405B",
-        "note": "Largest Hermes — very capable, requires credits",
-    },
-    {
-        "id": "sao10k/l3.3-euryale-70b",
-        "name": "Euryale 70B v2.3",
-        "note": "Creative/roleplay focused, minimal restrictions",
-    },
-    {
-        "id": "venice/uncensored:free",
-        "name": "Venice: Uncensored (free)",
-        "note": "Venice.ai hosted uncensored model — free tier",
-    },
-]
-
 # ── Helpers ──────────────────────────────────────────────────
 
 def bold(s):   return f"\033[1m{s}\033[0m"
@@ -223,10 +177,6 @@ def fetch_openrouter_models(api_key: str):
     # Build a live pricing lookup keyed by model id
     live_pricing = {m.get("id", ""): m.get("pricing", {}) for m in models}
 
-    # Enrich hardcoded uncensored list with live pricing data
-    for u in UNCENSORED_MODELS:
-        u["pricing"] = live_pricing.get(u["id"], {})
-
     for m in models:
         mid = m.get("id", "")
         pricing = m.get("pricing", {})
@@ -234,10 +184,6 @@ def fetch_openrouter_models(api_key: str):
             prompt_cost = float(pricing.get("prompt", "0") or 0)
         except (ValueError, TypeError):
             prompt_cost = 0.0
-
-        # Skip uncensored — we handle those separately
-        if any(tag in mid.lower() for tag in ["dolphin", "hermes", "euryale", "venice/uncensored"]):
-            continue
 
         if mid.endswith(":free") or prompt_cost == 0.0:
             free_models.append(m)
@@ -266,34 +212,11 @@ def display_models(models, label, start_idx=1):
     return start_idx + len(models)
 
 
-def display_uncensored_models(start_idx):
-    print(bold(f"\n  🔓 Uncensored / Unfiltered models:"))
-    for i, m in enumerate(UNCENSORED_MODELS, start=start_idx):
-        pricing = m.get("pricing", {})
-        try:
-            prompt_cost = float(pricing.get("prompt", "0") or 0)
-            compl_cost  = float(pricing.get("completion", "0") or 0)
-            if prompt_cost == 0 and compl_cost == 0:
-                cost_str = green("free")
-            else:
-                cost_str = yellow(f"${prompt_cost * 1e6:.2f}/${compl_cost * 1e6:.2f} per M tok (in/out)")
-        except (ValueError, TypeError):
-            cost_str = dim("price unknown")
-
-        name = m["name"].split(" (")[0]  # strip old hardcoded (free)/(paid) suffix
-        print(f"    {cyan(str(i).rjust(2))}. {name:<48} {cost_str}")
-        print(f"        {dim(m['note'])}")
-        print(f"        {dim(m['id'])}")
-    return start_idx + len(UNCENSORED_MODELS)
-
-
 def pick_model(label, free_models, paid_models, default_id):
-    """Interactive model picker including uncensored section."""
+    """Interactive model picker."""
     all_std = free_models + paid_models
     next_idx = display_models(free_models, "Top free models")
     next_idx = display_models(paid_models, "Cheapest paid models", start_idx=next_idx)
-    uncensored_start = next_idx
-    next_idx = display_uncensored_models(start_idx=uncensored_start)
 
     print(f"\n    {cyan('0')}. Enter a custom model ID")
     print()
@@ -313,24 +236,10 @@ def pick_model(label, free_models, paid_models, default_id):
             custom = input("  Enter custom model ID: ").strip()
             return custom if custom else default_id
 
-        std_count = len(all_std)
-        if 1 <= choice <= std_count:
+        if 1 <= choice <= len(all_std):
             return all_std[choice - 1]["id"]
 
-        uncensored_idx = choice - uncensored_start
-        if 0 <= uncensored_idx < len(UNCENSORED_MODELS):
-            selected = UNCENSORED_MODELS[uncensored_idx]
-            print(yellow(f"\n  ⚠  You selected an uncensored model: {selected['name']}"))
-            print(yellow(     "     These models have reduced safety filters."))
-            print(yellow(     "     Use responsibly and in accordance with OpenRouter's ToS.\n"))
-            confirm = ask_yn("  Confirm selection?", default=True)
-            if confirm:
-                return selected["id"]
-            else:
-                print("  Selection cancelled, please pick again.")
-                continue
-
-        print(red(f"  Invalid choice. Pick 1–{next_idx - 1} or 0 for custom."))
+        print(red(f"  Invalid choice. Pick 1–{len(all_std)} or 0 for custom."))
 
 
 # ── Provider config ──────────────────────────────────────────
@@ -668,7 +577,7 @@ def main():
     if or_key:
         free_models, paid_models = fetch_openrouter_models(or_key)
         print(green(f"  ✓ Fetched {len(free_models)} free + {len(paid_models)} cheapest paid models"))
-        print(green(f"  ✓ Plus {len(UNCENSORED_MODELS)} curated uncensored models available"))
+
     else:
         print(yellow("  ⚠ Skipping live fetch — you can still enter any model ID manually"))
 
