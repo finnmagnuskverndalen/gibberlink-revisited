@@ -158,39 +158,27 @@ def install_qwen3_deps():
 # ── OpenRouter live model fetch ──────────────────────────────
 
 # Minimum requirements for a model to work well as a council agent
-_MIN_CONTEXT_LENGTH = 8000       # multi-turn council needs decent context
-_MIN_COMPLETION_TOKENS = 100     # must be able to generate at least short responses
-_REQUIRED_PARAMS = {"max_tokens", "temperature"}  # essential for our prompts
+_MIN_CONTEXT_LENGTH = 4000       # multi-turn council needs decent context
 
 def _is_suitable_model(m: dict) -> bool:
     """Check if a model is suitable for council deliberation."""
-    # Must support text output
-    arch = m.get("architecture", {})
-    output_mods = arch.get("output_modalities", [])
-    if "text" not in output_mods:
-        return False
-
     # Must have sufficient context
     ctx = m.get("context_length", 0)
     if ctx < _MIN_CONTEXT_LENGTH:
         return False
 
-    # Must support essential parameters
-    supported = set(m.get("supported_parameters", []))
-    if not _REQUIRED_PARAMS.issubset(supported):
-        return False
-
-    # Must be able to generate reasonable completions
-    top_prov = m.get("top_provider", {})
-    max_comp = top_prov.get("max_completion_tokens", 0)
-    if max_comp and max_comp < _MIN_COMPLETION_TOKENS:
-        return False
-
     # Skip embedding-only, image-only, or audio-only models
     mid = m.get("id", "").lower()
     skip_keywords = ["embed", "tts", "whisper", "dall-e", "stable-diffusion",
-                     "midjourney", "imagen", "music", "vision-preview"]
+                     "midjourney", "imagen", "music", "vision-preview",
+                     "moderation", "guard", "safety", "classifier"]
     if any(kw in mid for kw in skip_keywords):
+        return False
+
+    # Skip if architecture says no text output (but allow if field is missing)
+    arch = m.get("architecture", {})
+    output_mods = arch.get("output_modalities", [])
+    if output_mods and "text" not in output_mods:
         return False
 
     return True
@@ -207,25 +195,55 @@ def _model_cost(m: dict) -> float:
         return 999.0
 
 
+# Fallback models if the live API fetch fails or returns nothing
+_FALLBACK_FREE_MODELS = [
+    {"id": "deepseek/deepseek-chat-v3-0324:free", "name": "DeepSeek V3 (free)", "context_length": 64000, "pricing": {"prompt": "0", "completion": "0"}},
+    {"id": "meta-llama/llama-4-maverick:free", "name": "Llama 4 Maverick (free)", "context_length": 128000, "pricing": {"prompt": "0", "completion": "0"}},
+    {"id": "google/gemini-2.0-flash-exp:free", "name": "Gemini 2.0 Flash (free)", "context_length": 1048576, "pricing": {"prompt": "0", "completion": "0"}},
+    {"id": "mistralai/mistral-small-3.1-24b-instruct:free", "name": "Mistral Small 3.1 (free)", "context_length": 96000, "pricing": {"prompt": "0", "completion": "0"}},
+    {"id": "qwen/qwen-2.5-72b-instruct:free", "name": "Qwen 2.5 72B (free)", "context_length": 32768, "pricing": {"prompt": "0", "completion": "0"}},
+    {"id": "microsoft/phi-4:free", "name": "Phi-4 (free)", "context_length": 16384, "pricing": {"prompt": "0", "completion": "0"}},
+]
+
+_FALLBACK_PAID_MODELS = [
+    {"id": "deepseek/deepseek-chat", "name": "DeepSeek V3", "context_length": 64000, "pricing": {"prompt": "0.00000014", "completion": "0.00000028"}},
+    {"id": "google/gemini-2.0-flash-001", "name": "Gemini 2.0 Flash", "context_length": 1048576, "pricing": {"prompt": "0.0000001", "completion": "0.0000004"}},
+    {"id": "google/gemini-2.5-flash-preview", "name": "Gemini 2.5 Flash", "context_length": 1048576, "pricing": {"prompt": "0.00000015", "completion": "0.0000006"}},
+    {"id": "mistralai/mistral-small-latest", "name": "Mistral Small", "context_length": 32000, "pricing": {"prompt": "0.0000001", "completion": "0.0000003"}},
+    {"id": "anthropic/claude-3-5-haiku-20241022", "name": "Claude 3.5 Haiku", "context_length": 200000, "pricing": {"prompt": "0.0000008", "completion": "0.000004"}},
+    {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini", "context_length": 128000, "pricing": {"prompt": "0.00000015", "completion": "0.0000006"}},
+    {"id": "meta-llama/llama-4-maverick", "name": "Llama 4 Maverick", "context_length": 128000, "pricing": {"prompt": "0.0000002", "completion": "0.0000006"}},
+    {"id": "qwen/qwen-2.5-72b-instruct", "name": "Qwen 2.5 72B", "context_length": 32768, "pricing": {"prompt": "0.00000016", "completion": "0.00000016"}},
+    {"id": "mistralai/mistral-nemo", "name": "Mistral Nemo", "context_length": 128000, "pricing": {"prompt": "0.00000003", "completion": "0.00000003"}},
+    {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1", "context_length": 64000, "pricing": {"prompt": "0.00000055", "completion": "0.00000219"}},
+    {"id": "google/gemma-3-27b-it", "name": "Gemma 3 27B", "context_length": 96000, "pricing": {"prompt": "0.0000001", "completion": "0.0000002"}},
+    {"id": "nvidia/llama-3.1-nemotron-70b-instruct", "name": "Nemotron 70B", "context_length": 131072, "pricing": {"prompt": "0.00000012", "completion": "0.0000003"}},
+]
+
+
 def fetch_openrouter_models(api_key: str):
     """Fetch available models from OpenRouter, return top free + cheapest paid.
     
-    Filters for chat-capable models with sufficient context length and
-    required parameter support. Sorts free models by context length (bigger
-    is better for multi-turn debate), paid models by total cost.
+    Filters for chat-capable models with sufficient context length.
+    Sorts free models by context length, paid by total cost.
+    Falls back to a hardcoded list if the API fetch fails.
     """
     try:
         with httpx.Client(timeout=15) as client:
             resp = client.get(
                 "https://openrouter.ai/api/v1/models",
                 headers={"Authorization": f"Bearer {api_key}"},
-                params={"category": "chat"},
             )
             resp.raise_for_status()
             models = resp.json().get("data", [])
     except Exception as e:
         print(yellow(f"  ⚠ Could not fetch live models: {e}"))
-        return [], []
+        print(dim("  Using fallback model list"))
+        return _FALLBACK_FREE_MODELS, _FALLBACK_PAID_MODELS
+
+    if not models:
+        print(yellow("  ⚠ API returned no models — using fallback list"))
+        return _FALLBACK_FREE_MODELS, _FALLBACK_PAID_MODELS
 
     free_models = []
     paid_models = []
@@ -254,9 +272,17 @@ def fetch_openrouter_models(api_key: str):
     top_free = free_models[:12]
     top_paid = paid_models[:20]
 
+    # If live fetch returned too few, supplement with fallbacks
+    if len(top_free) < 3:
+        print(dim("  (few free models found — supplementing with known models)"))
+        top_free = _FALLBACK_FREE_MODELS
+    if len(top_paid) < 5:
+        print(dim("  (few paid models found — supplementing with known models)"))
+        top_paid = _FALLBACK_PAID_MODELS
+
     total_skipped = len(models) - len(free_models) - len(paid_models)
     if total_skipped > 0:
-        print(dim(f"  ({total_skipped} models filtered out — embedding, image, low-context, or missing params)"))
+        print(dim(f"  ({total_skipped} models filtered out — embedding, image, low-context, etc.)"))
 
     return top_free, top_paid
 
