@@ -44,8 +44,9 @@ Votes appear as badges on each proposal in the side panel. At the end, the chair
 
 ## Features
 
-- **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
+- **Any LLM provider** — OpenRouter, OpenCode Zen, Gemini, Anthropic, OpenAI, xAI Grok
 - **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
+- **Shared API keys** — enter each API key once, automatically reused across all agents using the same provider
 - **4-phase deliberation** — problem → debate → converge → solution
 - **5 agents** — 4 debaters (strategist, creative, skeptic, synthesizer) + 1 chairman
 - **Proposal voting** — agents silently vote agree/disagree/amend on each proposal
@@ -96,7 +97,8 @@ The setup wizard will:
 - Create a `.venv` virtual environment automatically (handles Debian/Ubuntu PEP 668)
 - Install core dependencies inside the venv
 - Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
-- Walk you through API key and model configuration for all five agents (4 debaters + chairman)
+- Walk you through provider and model selection for all five agents
+- **Share API keys automatically** — enter each key once, reused across agents on the same provider
 - Detect your GPU VRAM and recommend the best TTS provider
 - Install the right TTS dependencies and download model files automatically
 - Create your `.env` file
@@ -118,12 +120,15 @@ Navigate to **http://127.0.0.1:8765**, describe a problem, adjust the number of 
 | Provider | Setup | Free models? |
 |---|---|---|
 | **OpenRouter** | [openrouter.ai/keys](https://openrouter.ai/keys) | Yes — Llama, Gemini, DeepSeek, Qwen, Mistral and more |
+| **OpenCode Zen** | [opencode.ai/auth](https://opencode.ai/auth) | Some free models (Big Pickle, MiniMax, etc.) |
 | **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Yes — Gemini 2.0/2.5 Flash |
 | **Anthropic** | [console.anthropic.com](https://console.anthropic.com/) | $5 free credit |
 | **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | No |
 | **xAI Grok** | [console.x.ai](https://console.x.ai/) | Free credits on signup |
 
 > **Cheapest way to run:** Use OpenRouter for all five agents with different free models. Total cost: $0.
+
+You can mix providers — for example, use OpenRouter free models for the four debaters and OpenCode Zen or Anthropic for the chairman to get a higher-quality final verdict.
 
 ## Text-to-Speech
 
@@ -161,7 +166,7 @@ Free models can produce garbage outputs — hallucinated multi-character dialogu
 - **Retry** — if a response is broken, retries once with a stricter prompt
 - **Graceful fallback** — if still broken, uses a phase-appropriate fallback response to keep the conversation flowing
 
-For best results, use higher-quality models (paid OpenRouter models, Gemini Flash, or Claude Haiku) for at least the chairman role.
+For best results, use higher-quality models (paid OpenRouter models, OpenCode Zen, Gemini Flash, or Claude Haiku) for at least the chairman role.
 
 ## What makes this different from GibberLink?
 
@@ -173,11 +178,11 @@ For best results, use higher-quality models (paid OpenRouter models, Gemini Flas
 | **Output** | Compressed alien language | Proposals, votes, ranked scoreboard, final verdict |
 | **Voting** | None | Agents vote agree/disagree/amend on each proposal |
 | **Chairman** | None | 5th agent synthesizes full deliberation into structured verdict |
+| **Providers** | ElevenLabs only | OpenRouter, OpenCode Zen, Anthropic, OpenAI, Gemini, Grok |
 | **TTS** | ElevenLabs only | ElevenLabs, Kokoro-ONNX, or Qwen3-TTS |
-| **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
 | **Quality** | No safeguards | Response sanitization, validation, retry, and fallback |
 | **Export** | None | Full JSON transcript with proposals, votes, and verdict |
-| **Setup** | Manual | Wizard — detects hardware, installs deps, writes .env |
+| **Setup** | Manual | Wizard — shared API keys, detects hardware, installs deps, writes .env |
 
 ## Project structure
 
@@ -185,7 +190,7 @@ For best results, use higher-quality models (paid OpenRouter models, Gemini Flas
 gibberlink-revisited/
 ├── server.py          # FastAPI backend — orchestrates agents, voting, chairman, TTS, WebSocket
 ├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started)
-├── setup.py           # Interactive setup wizard (5 agents + TTS)
+├── setup.py           # Interactive setup wizard (5 agents + TTS, shared API keys)
 ├── static/
 │   └── index.html     # Web frontend — chat UI with voting, scoreboard, consensus tracking
 ├── .env.example       # Configuration template
@@ -225,4 +230,4 @@ MIT
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
 - Inspired by [LLM Council](https://github.com/karpathy/llm-council) by Andrej Karpathy — the idea of grouping multiple LLMs into a council that reviews, debates, and synthesizes responses
-- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
+- Built with [OpenRouter](https://openrouter.ai), [OpenCode Zen](https://opencode.ai/zen), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
