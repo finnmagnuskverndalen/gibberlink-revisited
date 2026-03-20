@@ -620,7 +620,7 @@ function renderMsg(m, idx) {
   return `<div class="msg" style="max-width:85%;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);position:relative;animation:fadeIn 0.3s ease;font-size:12px;line-height:1.7;${isLeft?'align-self:flex-start':'align-self:flex-end'};${borderStyle}">
     <div class="msg-header">
       <span class="msg-agent" style="color:${color}">◉ ${m.agent_name || 'agent'}</span>
-      <span class="msg-role">${m.agent_role || ''}</span>
+      ${m.agent_model ? `<span style="font-size:9px;color:var(--text-dim);opacity:0.6">${esc(m.agent_model)}</span>` : ''}
       <span class="msg-phase ${phase}">${PHASE_LABELS[phase]||phase}</span>
     </div>
     <div class="msg-text">${esc(m.text)}</div>
@@ -753,6 +753,7 @@ function renderMain(app) {
               <div>
                 <span class="agent-label">${esc((a.name||'').toLowerCase())}</span>
                 <span class="agent-role">${a.role || a.mood || ''}</span>
+                ${a.model ? `<div style="font-size:8px;color:var(--text-dim);opacity:0.5;margin-top:-1px">${esc(a.model)}</div>` : ''}
               </div>
             </div>`;
           }).join('')}

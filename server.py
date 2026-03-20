@@ -1020,6 +1020,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "type": "message", "agent": agent_id, "agent_name": agent_name,
                     "agent_color": agent.get("color", "orange"),
                     "agent_role": agent.get("role", ""),
+                    "agent_model": agent.get("model", "").split("/")[-1].split(":")[0],
                     "turn": turn, "total_turns": total_turns,
                     "phase": phase, "text": spoken_text,
                     "audio": audio_b64,
@@ -1034,7 +1035,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "new_proposal_records": new_proposal_records,
                     "consensus": consensus,
                     "num_agents": len(agents),
-                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "role": a["role"], "mood": a.get("mood", "")} for a in all_agents],
+                    "agent_roster": [{"id": a["id"], "name": a["name"], "color": a["color"], "role": a["role"], "mood": a.get("mood", ""), "model": a.get("model", "").split("/")[-1].split(":")[0]} for a in all_agents],
                 },
                 "turn": turn,
             }
