@@ -1,6 +1,6 @@
 ![GibberLink Revisited](logo.svg)
 
-**Watch four AI agents discuss a problem, debate approaches, and converge on a solution — live, with voice.**
+**Watch four AI agents discuss a problem, debate approaches, vote on proposals, and converge on a solution — with a 5th chairman delivering the final verdict. Live, with voice.**
 
 Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo (15M+ views on X) and Andrej Karpathy's [LLM Council](https://github.com/karpathy/llm-council) — combining real-time AI conversation with structured multi-model deliberation where agents with distinct roles collaborate to solve problems live, with voice.
 
@@ -10,16 +10,17 @@ Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) 
 
 ```
 Phase 1: ◇ Problem Definition  — agents analyze the problem from their unique perspective
-Phase 2: ◆ Open Debate         — agents argue, challenge, and propose mechanisms
-Phase 3: ◈ Convergence         — building on strongest ideas, synthesizing agreement
+Phase 2: ◆ Open Debate         — agents argue, challenge, and propose solutions
+Phase 3: ◈ Convergence         — building on strongest ideas, voting on proposals
 Phase 4: ▣ Solution            — final positions, consensus reached
+      ◈ Chairman Verdict       — Nexus synthesizes the full deliberation + ranked scoreboard
 ```
 
 Phases scale proportionally to however many rounds you choose (8–32).
 
 ## Agents
 
-Four council members with distinct cognitive roles:
+Four council members deliberate, then a chairman delivers the verdict:
 
 | Agent | Role | Style |
 |---|---|---|
@@ -27,39 +28,35 @@ Four council members with distinct cognitive roles:
 | **Lyra** | Creative | Lateral thinker. Challenges assumptions, connects unlikely dots. Playful but sharp. |
 | **Kael** | Skeptic | Rigorous, evidence-driven. Pokes holes, plays devil's advocate. Demands proof. |
 | **Iris** | Synthesizer | Finds common ground. Integrates perspectives, builds bridges, sees patterns. |
+| **Nexus** | Chairman | Does not debate. Observes the full deliberation, then delivers a structured final verdict with a ranked proposal scoreboard. |
 
 Each agent is powered by a different LLM — mix and match providers to see how different models think.
 
-## JSON protocol
+## Voting system
 
-```json
-{
-  "protocol": "gibberlink-revisited-council",
-  "version": "2.0",
-  "from": "agent_a",
-  "turn": 8,
-  "phase": "converge",
-  "payload": {
-    "text": "Building on what's emerged — the base layer addresses structure, the middle handles adoption friction, and the top creates visible momentum.",
-    "proposals": ["Staged multi-layer approach with built-in feedback loops"],
-    "phase": "converge"
-  }
-}
-```
+When an agent makes a proposal, the other council members silently vote on it:
+
+- **Agree** — supports the proposal as stated
+- **Amend** — supports the direction but wants changes
+- **Disagree** — opposes the proposal
+
+Votes appear as badges on each proposal in the side panel. At the end, the chairman's verdict includes a **ranked scoreboard** showing all proposals sorted by vote score (agree=2pts, amend=1pt, disagree=0pts).
 
 ## Features
 
 - **Any LLM provider** — OpenRouter (free models), Gemini, Anthropic, OpenAI, xAI Grok
 - **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
 - **4-phase deliberation** — problem → debate → converge → solution
-- **4 distinct agent roles** — strategist, creative, skeptic, synthesizer
+- **5 agents** — 4 debaters (strategist, creative, skeptic, synthesizer) + 1 chairman
+- **Proposal voting** — agents silently vote agree/disagree/amend on each proposal
+- **Chairman verdict** — Nexus delivers a structured final synthesis with ranked proposal scoreboard
+- **Response sanitization** — detects and retries broken LLM outputs (hallucinated dialogue, classifier labels, gibberish)
 - **Text-to-Speech** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local, heavy)
 - **Hardware-aware TTS** — setup detects your GPU VRAM and recommends the right option
 - **Pipelined generation** — next turn generates while current audio plays, no gap between responses
 - **Live consensus bar** — watch agreement build as the council converges
-- **Proposal tracking** — proposals are extracted and displayed in the side panel
-- **Export transcript** — download full deliberation + proposals as JSON
-- **Real-time web UI** — live chat, proposal panel, JSON protocol inspector
+- **Export transcript** — download full deliberation + proposals + votes + verdict as JSON
+- **Real-time web UI** — live chat, proposal panel with votes, JSON protocol inspector
 
 ## Architecture
 
@@ -69,13 +66,19 @@ Each agent is powered by a different LLM — mix and match providers to see how 
 │  (index.html)│    messages + audio     │  server.py    │
 └─────────────┘                         └──────┬───────┘
                                                │
-                    ┌──────────────────────────┼──────────────────────────┐
-                    │                          │                          │
-              ┌─────▼─────┐            ┌──────▼──────┐      ┌────────────▼─────────┐
-              │ Voss / Lyra │           │ Kael / Iris  │      │  tts_server.py       │
-              │  (any LLM)  │           │  (any LLM)   │      │  Kokoro / Qwen3      │
-              └────────────┘            └─────────────┘      │  (auto-started)      │
-                                                              └──────────────────────┘
+              ┌────────────────────────────────┼────────────────────────────────┐
+              │                                │                                │
+        ┌─────▼─────┐  ┌──────▼──────┐  ┌─────▼─────┐  ┌──────▼──────┐  ┌─────▼──────┐
+        │   Voss    │  │    Lyra     │  │   Kael    │  │    Iris     │  │   Nexus    │
+        │ strategist│  │  creative   │  │  skeptic  │  │ synthesizer │  │  chairman  │
+        │ (any LLM) │  │ (any LLM)  │  │ (any LLM) │  │  (any LLM)  │  │ (any LLM)  │
+        └───────────┘  └────────────┘  └───────────┘  └────────────┘  └────────────┘
+                                               │
+                                    ┌──────────▼───────────┐
+                                    │  tts_server.py       │
+                                    │  Kokoro / Qwen3      │
+                                    │  (auto-started)      │
+                                    └──────────────────────┘
 ```
 
 ## Quick start
@@ -93,7 +96,7 @@ The setup wizard will:
 - Create a `.venv` virtual environment automatically (handles Debian/Ubuntu PEP 668)
 - Install core dependencies inside the venv
 - Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
-- Walk you through API key and model configuration for all four agents
+- Walk you through API key and model configuration for all five agents (4 debaters + chairman)
 - Detect your GPU VRAM and recommend the best TTS provider
 - Install the right TTS dependencies and download model files automatically
 - Create your `.env` file
@@ -120,7 +123,7 @@ Navigate to **http://127.0.0.1:8765**, describe a problem, adjust the number of 
 | **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | No |
 | **xAI Grok** | [console.x.ai](https://console.x.ai/) | Free credits on signup |
 
-> **Cheapest way to run:** Use OpenRouter for all four agents with different free models. Total cost: $0.
+> **Cheapest way to run:** Use OpenRouter for all five agents with different free models. Total cost: $0.
 
 ## Text-to-Speech
 
@@ -149,29 +152,42 @@ Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/set
 | 3–6GB VRAM | Kokoro (faster) or Qwen3 (richer voices) |
 | 6GB+ VRAM | Any — ElevenLabs for best quality |
 
+## Response quality
+
+Free models can produce garbage outputs — hallucinated multi-character dialogue, leaked classifier labels (`safe`/`unsafe`), or prompt token leaks. GibberLink Revisited handles this automatically:
+
+- **Sanitization** — strips classifier labels, leaked tokens, HTML tags, and lines where an agent writes dialogue for other agents
+- **Validation** — detects broken responses (gibberish, multi-speaker hallucinations, repeated junk)
+- **Retry** — if a response is broken, retries once with a stricter prompt
+- **Graceful fallback** — if still broken, uses a phase-appropriate fallback response to keep the conversation flowing
+
+For best results, use higher-quality models (paid OpenRouter models, Gemini Flash, or Claude Haiku) for at least the chairman role.
+
 ## What makes this different from GibberLink?
 
 | | GibberLink (original) | GibberLink Revisited |
 |---|---|---|
 | **Purpose** | AI-to-AI language evolution | Structured problem-solving deliberation |
-| **Agents** | 2 generic | 4 named roles: strategist, creative, skeptic, synthesizer |
-| **Phases** | 2 (human / protocol) | 4 (problem / debate / converge / solution) |
-| **Output** | Compressed alien language | Concrete proposals and consensus |
+| **Agents** | 2 generic | 5 named roles: strategist, creative, skeptic, synthesizer, chairman |
+| **Phases** | 2 (human / protocol) | 4 + chairman verdict |
+| **Output** | Compressed alien language | Proposals, votes, ranked scoreboard, final verdict |
+| **Voting** | None | Agents vote agree/disagree/amend on each proposal |
+| **Chairman** | None | 5th agent synthesizes full deliberation into structured verdict |
 | **TTS** | ElevenLabs only | ElevenLabs, Kokoro-ONNX, or Qwen3-TTS |
 | **Models** | ElevenLabs Conversational AI only | Any LLM — mix and match providers |
-| **Tracking** | Dictionary of compressed terms | Proposal panel with consensus progress |
-| **Export** | None | Full JSON transcript with proposals |
+| **Quality** | No safeguards | Response sanitization, validation, retry, and fallback |
+| **Export** | None | Full JSON transcript with proposals, votes, and verdict |
 | **Setup** | Manual | Wizard — detects hardware, installs deps, writes .env |
 
 ## Project structure
 
 ```
 gibberlink-revisited/
-├── server.py          # FastAPI backend — orchestrates agents, TTS, WebSocket
+├── server.py          # FastAPI backend — orchestrates agents, voting, chairman, TTS, WebSocket
 ├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started)
-├── setup.py           # Interactive setup wizard
+├── setup.py           # Interactive setup wizard (5 agents + TTS)
 ├── static/
-│   └── index.html     # Web frontend — chat UI with consensus tracking
+│   └── index.html     # Web frontend — chat UI with voting, scoreboard, consensus tracking
 ├── .env.example       # Configuration template
 ├── requirements.txt   # Core dependencies (TTS deps installed by setup.py)
 ├── logo.svg
@@ -209,3 +225,4 @@ MIT
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
 - Inspired by [LLM Council](https://github.com/karpathy/llm-council) by Andrej Karpathy — the idea of grouping multiple LLMs into a council that reviews, debates, and synthesizes responses
+- Built with [OpenRouter](https://openrouter.ai), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
