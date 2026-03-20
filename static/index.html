@@ -455,6 +455,7 @@ function connect(topic, turns) {
       state.consensus = data.consensus || 100;
       if (data.proposal_records) state.proposalRecords = data.proposal_records;
       render();
+      scrollChat();
     }
 
     if (data.type === 'error') {
@@ -469,9 +470,15 @@ function connect(topic, turns) {
 }
 
 function scrollChat() {
+  // Double requestAnimationFrame ensures layout is fully complete
+  // before we measure scrollHeight (fixes chairman card scroll issue)
   requestAnimationFrame(() => {
-    const el = document.getElementById('chat-scroll');
-    if (el) el.scrollTop = el.scrollHeight;
+    requestAnimationFrame(() => {
+      const chat = document.getElementById('chat-scroll');
+      if (chat) chat.scrollTop = chat.scrollHeight;
+      const proposals = document.querySelector('.proposals-scroll');
+      if (proposals) proposals.scrollTop = proposals.scrollHeight;
+    });
   });
 }
 
