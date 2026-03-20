@@ -442,6 +442,8 @@ _GARBAGE_PATTERNS = [
 
 def sanitize_response(text: str, agent_name: str, other_names: list[str]) -> str:
     """Clean up a raw LLM response, stripping common garbage patterns."""
+    if not text:
+        return ""
     # Strip lines that are just "safe" / "unsafe" / classifier labels
     lines = text.split("\n")
     clean_lines = []
@@ -619,7 +621,10 @@ async def _call_anthropic(api_key, model, messages, system_prompt, max_tokens=20
     )
     data = resp.json()
     if "error" in data: raise RuntimeError(f"Anthropic: {data['error']}")
-    return data["content"][0]["text"]
+    content = data["content"][0]["text"] if data.get("content") else None
+    if content is None:
+        raise RuntimeError("Anthropic returned empty response")
+    return content
 
 async def _call_openai_compat(api_key, model, url, messages, system_prompt, max_tokens=200):
     client = await get_client()
@@ -631,7 +636,10 @@ async def _call_openai_compat(api_key, model, url, messages, system_prompt, max_
     )
     data = resp.json()
     if "error" in data: raise RuntimeError(f"API error: {data['error']}")
-    return data["choices"][0]["message"]["content"]
+    content = data["choices"][0]["message"]["content"]
+    if content is None:
+        raise RuntimeError("Model returned empty response (content is null)")
+    return content
 
 async def _call_gemini(api_key, model, messages, system_prompt, max_tokens=200):
     client = await get_client()
@@ -643,7 +651,13 @@ async def _call_gemini(api_key, model, messages, system_prompt, max_tokens=200):
     })
     data = resp.json()
     if "error" in data: raise RuntimeError(f"Gemini: {data['error'].get('message', data['error'])}")
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    try:
+        content = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError):
+        raise RuntimeError("Gemini returned empty or malformed response")
+    if content is None:
+        raise RuntimeError("Gemini returned null content")
+    return content
 
 # ── Proposal extraction ─────────────────────────────────────
 
