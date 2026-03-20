@@ -250,6 +250,11 @@ PROVIDER_DEFAULTS = {
         "key_env": "OPENROUTER_API_KEY",
         "url": "https://openrouter.ai/keys",
     },
+    "opencode_zen": {
+        "key_hint": "oc-...",
+        "key_env": "OPENCODE_API_KEY",
+        "url": "https://opencode.ai/auth",
+    },
     "anthropic": {
         "key_hint": "sk-ant-...",
         "key_env": "ANTHROPIC_API_KEY",
@@ -293,7 +298,12 @@ def pick_provider(label, default="openrouter"):
 
 
 def configure_agent(label, default_provider="openrouter", default_model=None,
-                    free_models=None, paid_models=None):
+                    free_models=None, paid_models=None, key_cache=None):
+    """Configure a single agent. key_cache is a dict of {key_env: key_value}
+    shared across all agents so users only enter each API key once."""
+    if key_cache is None:
+        key_cache = {}
+
     print(bold(f"\n{'─'*50}"))
     print(bold(f"  {label}"))
     print(f"{'─'*50}")
@@ -301,17 +311,30 @@ def configure_agent(label, default_provider="openrouter", default_model=None,
     provider = pick_provider(f"{label} — provider", default=default_provider)
     info = PROVIDER_DEFAULTS[provider]
 
-    existing_key = os.environ.get(info["key_env"], "")
-    if existing_key:
-        print(f"  {green('✓')} Found existing {info['key_env']} in environment")
-        api_key = existing_key
+    # Check cache first, then env, then ask
+    api_key = key_cache.get(info["key_env"], "")
+    if not api_key:
+        api_key = os.environ.get(info["key_env"], "")
+    if api_key:
+        print(f"  {green('✓')} Reusing {info['key_env']} from {'previous agent' if info['key_env'] in key_cache else 'environment'}")
     else:
         print(f"  Get your key at: {cyan(info['url'])}")
         api_key = ask(f"  {label} API key ({info['key_hint']})", default="")
 
+    # Cache the key for subsequent agents
+    if api_key:
+        key_cache[info["key_env"]] = api_key
+
     if provider == "openrouter" and free_models is not None:
         model = pick_model(label, free_models, paid_models,
                            default_id=default_model or "deepseek/deepseek-chat-v3-0324:free")
+    elif provider == "opencode_zen":
+        # OpenCode Zen uses opencode/ prefix for model IDs
+        fallback = default_model or "opencode/big-pickle"
+        print(f"\n  {dim('OpenCode Zen models: opencode/gpt-5.3-codex, opencode/claude-sonnet-4-6,')}")
+        print(f"  {dim('opencode/gemini-3-flash, opencode/big-pickle, opencode/qwen-max, etc.')}")
+        print(f"  {dim('Full list: https://opencode.ai/docs/zen/')}")
+        model = ask(f"  Model ID", default=fallback)
     else:
         fallbacks = {
             "anthropic": "claude-3-5-haiku-20241022",
@@ -610,6 +633,9 @@ def main():
 
     install_base_deps()
 
+    # Shared key cache — enter each API key once, reuse across agents
+    key_cache = {}
+
     # Try to get OpenRouter key early so we can fetch live models
     print(bold("\n🌐 Fetching live models from OpenRouter..."))
     or_key = os.environ.get("OPENROUTER_API_KEY", "")
@@ -619,48 +645,49 @@ def main():
 
     free_models, paid_models = [], []
     if or_key:
+        key_cache["OPENROUTER_API_KEY"] = or_key
         free_models, paid_models = fetch_openrouter_models(or_key)
         print(green(f"  ✓ Fetched {len(free_models)} free + {len(paid_models)} cheapest paid models"))
-
     else:
         print(yellow("  ⚠ Skipping live fetch — you can still enter any model ID manually"))
 
     print(bold("\n🤖 Configure Agents"))
+    print(dim("  Tip: API keys are shared automatically — enter each key only once.\n"))
 
     agent_a = configure_agent(
-        "Agent A — Alex",
+        "Voss — Strategist",
         default_provider="openrouter",
         default_model="deepseek/deepseek-chat-v3-0324:free",
         free_models=free_models,
         paid_models=paid_models,
+        key_cache=key_cache,
     )
 
-    # If Agent A uses OpenRouter, pre-fill its key for Agent B
-    if agent_a[0] == "openrouter" and or_key and not agent_a[1]:
-        agent_a = (agent_a[0], or_key, agent_a[2])
-
     agent_b = configure_agent(
-        "Agent B — Sam",
+        "Lyra — Creative",
         default_provider="openrouter",
         default_model="meta-llama/llama-4-maverick:free",
         free_models=free_models,
         paid_models=paid_models,
+        key_cache=key_cache,
     )
 
     agent_c = configure_agent(
-        "Agent C — Jordan",
+        "Kael — Skeptic",
         default_provider="openrouter",
         default_model="google/gemini-2.0-flash-exp:free",
         free_models=free_models,
         paid_models=paid_models,
+        key_cache=key_cache,
     )
 
     agent_d = configure_agent(
-        "Agent D — Riley",
+        "Iris — Synthesizer",
         default_provider="openrouter",
         default_model="mistralai/mistral-small-3.1-24b-instruct:free",
         free_models=free_models,
         paid_models=paid_models,
+        key_cache=key_cache,
     )
 
     print(bold(f"\n{'─'*50}"))
@@ -668,11 +695,12 @@ def main():
     print(f"{'─'*50}")
 
     chairman = configure_agent(
-        "Chairman — Nexus",
+        "Nexus — Chairman",
         default_provider="openrouter",
         default_model="deepseek/deepseek-chat-v3-0324:free",
         free_models=free_models,
         paid_models=paid_models,
+        key_cache=key_cache,
     )
 
     tts = configure_tts()

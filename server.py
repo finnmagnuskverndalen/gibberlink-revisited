@@ -596,9 +596,10 @@ async def call_llm(provider, api_key, model, messages, system_prompt, retries=3,
                 return await _call_gemini(api_key, model, messages, system_prompt, max_tokens)
             else:
                 urls = {
-                    "openrouter": "https://openrouter.ai/api/v1/chat/completions",
-                    "openai":     "https://api.openai.com/v1/chat/completions",
-                    "grok":       "https://api.x.ai/v1/chat/completions",
+                    "openrouter":   "https://openrouter.ai/api/v1/chat/completions",
+                    "openai":       "https://api.openai.com/v1/chat/completions",
+                    "grok":         "https://api.x.ai/v1/chat/completions",
+                    "opencode_zen": "https://opencode.ai/zen/v1/chat/completions",
                 }
                 return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt, max_tokens)
         except Exception as e:
