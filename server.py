@@ -550,7 +550,9 @@ def get_system_prompt(agent_name, other_names, phase, proposals, problem, person
                 f"Proposals so far: [{prop_str}]. "
                 f"Argue for your approach, challenge others' ideas, or build on what's been said. "
                 f"Be direct — disagree when you disagree, but stay constructive. "
-                f"Propose concrete mechanisms, not just principles.")
+                f"Propose concrete mechanisms, not just principles. "
+                f"If you have a concrete proposal, put it on its own line starting with PROPOSAL: "
+                f"For example: PROPOSAL: Use a staged rollout with weekly checkpoints")
 
     if phase == PHASE_CONVERGE:
         prop_str = "; ".join(f'"{p}"' for p in proposals[-5:]) if proposals else "none yet"
@@ -559,7 +561,8 @@ def get_system_prompt(agent_name, other_names, phase, proposals, problem, person
                 f"The council is moving toward agreement. Proposals so far: [{prop_str}]. "
                 f"Build on the strongest ideas. If you have a remaining concern, state it briefly. "
                 f"If you can see a synthesis forming, name it explicitly. "
-                f"If you want to propose a solution, prefix it with PROPOSAL: on its own line.")
+                f"You MUST include a PROPOSAL: line with your proposed solution on its own line. "
+                f"For example: PROPOSAL: Combine approach A with approach B, adding feedback loops")
 
     if phase == PHASE_SOLUTION:
         prop_str = "; ".join(f'"{p}"' for p in proposals[-5:]) if proposals else "none"
@@ -635,14 +638,43 @@ async def _call_gemini(api_key, model, messages, system_prompt):
 # ── Proposal extraction ─────────────────────────────────────
 
 def extract_proposals(text):
-    """Extract any PROPOSAL: lines from the response."""
+    """Extract proposals from the response.
+    
+    Primary: lines starting with PROPOSAL:
+    Fallback: natural-language proposal patterns that free models use instead.
+    """
     proposals = []
+
+    # Primary: explicit PROPOSAL: lines
     for line in text.split("\n"):
         stripped = line.strip()
         if stripped.upper().startswith("PROPOSAL:"):
             proposal = stripped[9:].strip()
-            if proposal:
+            if proposal and len(proposal) > 10:
                 proposals.append(proposal)
+
+    # If we found explicit proposals, use those
+    if proposals:
+        return proposals
+
+    # Fallback: detect natural-language proposals in converge/solution phases
+    # These patterns catch common ways free models phrase proposals
+    _PROPOSAL_PATTERNS = [
+        re.compile(r'(?:I|my|our)\s+propos(?:e|al)\s+(?:is\s+)?(?:that\s+)?(.{15,120})', re.IGNORECASE),
+        re.compile(r'(?:I\s+)?suggest\s+(?:we\s+|that\s+)?(.{15,120})', re.IGNORECASE),
+        re.compile(r'(?:the\s+)?solution\s+(?:is|should\s+be|I\'d\s+recommend)\s+(.{15,120})', re.IGNORECASE),
+        re.compile(r'we\s+should\s+(?:adopt|implement|pursue|go\s+with)\s+(.{15,120})', re.IGNORECASE),
+        re.compile(r'(?:my\s+)?recommendation\s+is\s+(.{15,120})', re.IGNORECASE),
+    ]
+
+    for pattern in _PROPOSAL_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            proposal = match.group(1).strip().rstrip('.')
+            if proposal and len(proposal) > 10:
+                proposals.append(proposal)
+                break  # Only extract one fallback proposal per response
+
     return proposals
 
 async def collect_votes(agents, proposal_text, proposal_idx, messages, problem, call_llm_fn):
