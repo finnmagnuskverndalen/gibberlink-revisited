@@ -160,21 +160,6 @@ Free models sometimes produce garbage — hallucinated multi-character dialogue,
 
 For best results, use a higher-quality model for at least the chairman (Nexus). His verdict is the most visible output.
 
-## Comparison with the original
-
-| | GibberLink | GibberLink Revisited |
-|---|---|---|
-| **Purpose** | AI language evolution | Structured problem-solving |
-| **Agents** | 2 generic | 5 specialized + chairman with veto |
-| **Phases** | 2 | 4 + chairman verdict |
-| **Output** | Compressed alien language | Proposals, weighted votes, reasons, scoreboard, verdict |
-| **Voting** | — | Role-weighted with parallel collection and veto |
-| **Providers** | ElevenLabs only | 6 providers, mix-and-match |
-| **TTS** | ElevenLabs | ElevenLabs, Kokoro, Qwen3 |
-| **Resilience** | — | Sanitization, retry, fallback |
-| **Export** | — | Full JSON with votes, reasons, and verdict |
-| **Setup** | Manual | Wizard with shared keys, hardware detection, live model fetch |
-
 ## Project structure
 
 ```
