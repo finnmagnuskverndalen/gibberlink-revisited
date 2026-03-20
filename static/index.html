@@ -238,6 +238,13 @@ body::after {
 .vote-badge.agree { border-color: rgba(52,211,153,0.3); color: var(--green); }
 .vote-badge.disagree { border-color: rgba(248,113,113,0.3); color: var(--red); }
 .vote-badge.amend { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
+.vote-badge.author { border-color: rgba(34,211,238,0.3); color: var(--cyan); }
+.vote-badge.veto { border-color: rgba(248,113,113,0.5); color: var(--red); font-weight: 600; }
+.vote-reason { font-size: 8px; color: var(--text-dim); margin-top: 2px; line-height: 1.4; font-style: italic; }
+.veto-indicator {
+  font-size: 8px; color: var(--red); border: 1px solid rgba(248,113,113,0.3);
+  padding: 0 4px; margin-top: 4px; display: inline-block; letter-spacing: 0.5px;
+}
 
 /* Chairman verdict */
 .chairman-card {
@@ -660,7 +667,14 @@ function renderChairmanVerdict() {
       ${scoreboard.map((p, i) => {
         const rankClass = i < 3 ? rankColors[i] : '';
         const vc = p.vote_counts || {agree:0, disagree:0, amend:0};
-        return `<div class="scoreboard-item">
+        const vetoed = p.chairman_vetoed;
+        const reasons = p.reasons || {};
+        const reasonLines = Object.entries(reasons).filter(([,r]) => r).map(([aid, r]) => {
+          const agent = (state.agentRoster || []).find(a => a.id === aid);
+          const name = agent ? agent.name : aid;
+          return `${name.toLowerCase()}: ${esc(r)}`;
+        });
+        return `<div class="scoreboard-item" ${vetoed ? 'style="opacity:0.6"' : ''}>
           <div class="scoreboard-rank ${rankClass}">#${i+1}</div>
           <div class="scoreboard-body">
             <div class="scoreboard-proposal-text">${esc(p.text)}</div>
@@ -673,6 +687,8 @@ function renderChairmanVerdict() {
               </div>
               <span class="scoreboard-score">${p.score} pts</span>
             </div>
+            ${vetoed ? '<div class="veto-indicator">◈ CHAIRMAN VETO — score halved</div>' : ''}
+            ${reasonLines.length > 0 ? `<div class="vote-reason" style="margin-top:3px">${reasonLines.join(' · ')}</div>` : ''}
           </div>
         </div>`;
       }).join('')}
@@ -683,7 +699,7 @@ function renderChairmanVerdict() {
     <div class="chairman-header">
       <div class="chairman-dot"></div>
       <span class="chairman-name">◈ ${esc(v.agent_name || 'Nexus')}</span>
-      <span class="chairman-role">${esc(v.agent_role || 'chairman')}</span>
+      ${v.agent_model ? `<span style="font-size:9px;color:var(--text-dim);opacity:0.6">${esc(v.agent_model)}</span>` : ''}
       <span class="chairman-label">FINAL VERDICT</span>
     </div>
     <div class="chairman-text">${esc(v.text)}</div>
@@ -778,15 +794,40 @@ function renderMain(app) {
           ${state.proposalRecords.length === 0
             ? '<div class="proposal-empty">awaiting convergence phase...</div>'
             : state.proposalRecords.map((p, i) => {
-                const voteHtml = p.votes ? Object.entries(p.votes).map(([aid, vote]) => {
+                const reasons = p.reasons || {};
+                const authorId = p.author_id || '';
+                const voteHtml = (() => {
+                  const badges = [];
+                  // Author badge
+                  if (authorId) {
+                    const authorAgent = (state.agentRoster || []).find(a => a.id === authorId);
+                    const authorName = authorAgent ? authorAgent.name : '';
+                    if (authorName) badges.push(`<span class="vote-badge author">${authorName.toLowerCase()}: author</span>`);
+                  }
+                  // Voter badges
+                  if (p.votes) {
+                    Object.entries(p.votes).forEach(([aid, vote]) => {
+                      const agent = (state.agentRoster || []).find(a => a.id === aid);
+                      const name = agent ? agent.name : aid;
+                      const isChairman = aid === 'chairman';
+                      const cls = isChairman && vote === 'disagree' ? 'veto' : vote;
+                      const label = isChairman && vote === 'disagree' ? 'VETO' : vote;
+                      badges.push(`<span class="vote-badge ${cls}">${name.toLowerCase()}: ${label}</span>`);
+                    });
+                  }
+                  return badges.join('');
+                })();
+                // Collect non-empty reasons
+                const reasonLines = Object.entries(reasons).filter(([,r]) => r).map(([aid, r]) => {
                   const agent = (state.agentRoster || []).find(a => a.id === aid);
                   const name = agent ? agent.name : aid;
-                  return `<span class="vote-badge ${vote}">${name.toLowerCase()}: ${vote}</span>`;
-                }).join('') : '';
+                  return `${name.toLowerCase()}: ${esc(r)}`;
+                });
                 return `<div class="proposal-entry">
                   <div class="proposal-author">◉ ${esc(p.author || '')} — t${(p.turn||0) + 1}</div>
                   <div class="proposal-text">${esc(p.text)}</div>
                   ${voteHtml ? `<div class="vote-row">${voteHtml}</div>` : ''}
+                  ${reasonLines.length > 0 ? `<div class="vote-reason">${reasonLines.join(' · ')}</div>` : ''}
                 </div>`;
               }).join('')}
         </div>
