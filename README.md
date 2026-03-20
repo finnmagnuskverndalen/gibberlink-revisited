@@ -1,85 +1,96 @@
 ![GibberLink Revisited](logo.svg)
 
-**Watch four AI agents discuss a problem, debate approaches, vote on proposals, and converge on a solution — with a 5th chairman delivering the final verdict. Live, with voice.**
+**Five AI agents. One problem. A structured deliberation with role-weighted voting, chairman veto power, and a final verdict — live, with voice.**
 
-Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo (15M+ views on X) and Andrej Karpathy's [LLM Council](https://github.com/karpathy/llm-council) — combining real-time AI conversation with structured multi-model deliberation where agents with distinct roles collaborate to solve problems live, with voice.
+Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) (15M+ views on X) and Andrej Karpathy's [LLM Council](https://github.com/karpathy/llm-council). Each agent runs on a different LLM. They debate, propose solutions, vote with reasons, and a chairman delivers the final verdict with a ranked scoreboard.
 
 ---
 
 ## How it works
 
 ```
-Phase 1: ◇ Problem Definition  — agents analyze the problem from their unique perspective
-Phase 2: ◆ Open Debate         — agents argue, challenge, and propose solutions
-Phase 3: ◈ Convergence         — building on strongest ideas, voting on proposals
-Phase 4: ▣ Solution            — final positions, consensus reached
-      ◈ Chairman Verdict       — Nexus synthesizes the full deliberation + ranked scoreboard
+Phase 1  ◇  DEFINE     — four agents analyze the problem from distinct perspectives
+Phase 2  ◆  DEBATE     — argue approaches, challenge ideas, propose concrete solutions
+Phase 3  ◈  CONVERGE   — build on strongest ideas, refine proposals, cast votes
+Phase 4  ▣  SOLVE      — final positions, consensus reached
+      ◈  VERDICT       — chairman synthesizes the deliberation + ranked scoreboard
 ```
 
-Phases scale proportionally to however many rounds you choose (8–32).
+Phases scale proportionally to the number of rounds you choose (8–32). Each proposal triggers a parallel vote round across all agents — including the chairman.
 
-## Agents
+## The council
 
-Four council members deliberate, then a chairman delivers the verdict:
+| Agent | Role | Cognitive style | Vote weight |
+|---|---|---|---|
+| **Voss** | Strategist | Systems-thinker. Identifies leverage points, incentives, and second-order effects. | 1.2× |
+| **Lyra** | Creative | Lateral thinker. Challenges assumptions, connects unlikely dots. Playful but sharp. | 1.0× |
+| **Kael** | Skeptic | Evidence-driven. Pokes holes, demands proof, plays devil's advocate. | 1.5× |
+| **Iris** | Synthesizer | Finds common ground. Integrates perspectives, builds bridges, sees patterns. | 1.3× |
+| **Nexus** | Chairman | Observes the full deliberation. Votes on proposals with 2.0× weight and **veto power**. Delivers the final verdict. | 2.0× |
 
-| Agent | Role | Style |
-|---|---|---|
-| **Voss** | Strategist | Direct, decisive, systems-thinker. Identifies leverage points and incentives. |
-| **Lyra** | Creative | Lateral thinker. Challenges assumptions, connects unlikely dots. Playful but sharp. |
-| **Kael** | Skeptic | Rigorous, evidence-driven. Pokes holes, plays devil's advocate. Demands proof. |
-| **Iris** | Synthesizer | Finds common ground. Integrates perspectives, builds bridges, sees patterns. |
-| **Nexus** | Chairman | Does not debate. Observes the full deliberation, then delivers a structured final verdict with a ranked proposal scoreboard. |
-
-Each agent is powered by a different LLM — mix and match providers to see how different models think.
+Each agent is powered by a different LLM — mix and match providers to see how different models reason about the same problem.
 
 ## Voting system
 
-When an agent makes a proposal, the other council members silently vote on it:
+When any agent makes a proposal, a parallel vote round is triggered:
 
-- **Agree** — supports the proposal as stated
-- **Amend** — supports the direction but wants changes
-- **Disagree** — opposes the proposal
+| Vote | Meaning | Points |
+|---|---|---|
+| **Agree** | Supports the proposal as stated | 2 × role weight |
+| **Amend** | Supports the direction but wants changes | 1 × role weight |
+| **Disagree** | Opposes the proposal | 0 |
 
-Votes appear as badges on each proposal in the side panel. At the end, the chairman's verdict includes a **ranked scoreboard** showing all proposals sorted by vote score (agree=2pts, amend=1pt, disagree=0pts).
+Every voter provides a **one-sentence reason** explaining their vote, shown in the sidebar and scoreboard.
+
+The system includes several mechanisms for quality:
+
+- **Proposer excluded** — the author doesn't vote on their own proposal (shown as "author" badge)
+- **Chairman votes on everything** — Nexus participates in every vote with 2.0× weight
+- **Chairman veto** — if Nexus disagrees, the proposal's score is halved and marked with a veto indicator
+- **Role-weighted scoring** — Kael's skeptical disagree carries 1.5× weight; Iris's synthesizer agree carries 1.3×
+- **Parallel execution** — all votes run simultaneously via `asyncio.gather`, not sequentially
+- **Conversation context** — voters see the last 4 messages for informed decisions
+- **Deduplication** — proposals with >70% word overlap are automatically skipped
 
 ## Features
 
-- **Any LLM provider** — OpenRouter, OpenCode Zen, Gemini, Anthropic, OpenAI, xAI Grok
-- **Live model fetching** — setup wizard pulls currently available models from OpenRouter API with live pricing
-- **Shared API keys** — enter each API key once, automatically reused across all agents using the same provider
-- **4-phase deliberation** — problem → debate → converge → solution
-- **5 agents** — 4 debaters (strategist, creative, skeptic, synthesizer) + 1 chairman
-- **Proposal voting** — agents silently vote agree/disagree/amend on each proposal
-- **Chairman verdict** — Nexus delivers a structured final synthesis with ranked proposal scoreboard
-- **Response sanitization** — detects and retries broken LLM outputs (hallucinated dialogue, classifier labels, gibberish)
-- **Text-to-Speech** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local, heavy)
-- **Hardware-aware TTS** — setup detects your GPU VRAM and recommends the right option
-- **Pipelined generation** — next turn generates while current audio plays, no gap between responses
+- **6 LLM providers** — OpenRouter, OpenCode Zen, Gemini, Anthropic, OpenAI, xAI Grok
+- **Smart model selection** — setup wizard fetches live models, filters by chat capability and context length, with hardcoded fallbacks
+- **Shared API keys** — enter each key once, automatically reused across all agents on the same provider
+- **4-phase deliberation** — problem → debate → converge → solution, then chairman verdict
+- **5 distinct agents** — 4 debaters with cognitive specializations + 1 chairman with veto power
+- **Role-weighted voting** — parallel vote collection with reasons, deduplication, and chairman veto
+- **Ranked scoreboard** — proposals sorted by weighted score, shown in the chairman's verdict card
+- **Model attribution** — each message shows which LLM powered it (e.g. "deepseek-chat-v3-0324")
+- **Response sanitization** — detects and retries broken outputs (hallucinated dialogue, classifier leaks, gibberish)
+- **Text-to-Speech** — ElevenLabs (cloud), Kokoro-ONNX (local, recommended), or Qwen3-TTS (local)
+- **Hardware-aware TTS** — setup detects GPU VRAM and recommends the right option
+- **Pipelined generation** — next turn's LLM call runs while current audio plays
 - **Live consensus bar** — watch agreement build as the council converges
-- **Export transcript** — download full deliberation + proposals + votes + verdict as JSON
-- **Real-time web UI** — live chat, proposal panel with votes, JSON protocol inspector
+- **Export** — download full transcript with proposals, votes, reasons, and verdict as JSON
 
 ## Architecture
 
 ```
 ┌─────────────┐     WebSocket/JSON      ┌──────────────┐
 │   Browser    │◄──────────────────────►│  FastAPI      │
-│  (index.html)│    messages + audio     │  server.py    │
+│  (index.html)│   messages + audio      │  server.py    │
 └─────────────┘                         └──────┬───────┘
                                                │
-              ┌────────────────────────────────┼────────────────────────────────┐
-              │                                │                                │
-        ┌─────▼─────┐  ┌──────▼──────┐  ┌─────▼─────┐  ┌──────▼──────┐  ┌─────▼──────┐
-        │   Voss    │  │    Lyra     │  │   Kael    │  │    Iris     │  │   Nexus    │
-        │ strategist│  │  creative   │  │  skeptic  │  │ synthesizer │  │  chairman  │
-        │ (any LLM) │  │ (any LLM)  │  │ (any LLM) │  │  (any LLM)  │  │ (any LLM)  │
-        └───────────┘  └────────────┘  └───────────┘  └────────────┘  └────────────┘
-                                               │
-                                    ┌──────────▼───────────┐
-                                    │  tts_server.py       │
-                                    │  Kokoro / Qwen3      │
-                                    │  (auto-started)      │
-                                    └──────────────────────┘
+         ┌─────────────────────────────────────┼─────────────────────────────────────┐
+         │                                     │                                     │
+   ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐  ┌─────▼─────┐
+   │   Voss    │  │   Lyra    │  │   Kael    │  │   Iris    │  │   Nexus   │
+   │ strategist│  │ creative  │  │  skeptic  │  │synthesizer│  │ chairman  │
+   │  1.2× wt  │  │  1.0× wt  │  │  1.5× wt  │  │  1.3× wt  │  │ 2.0× veto │
+   │ (any LLM) │  │ (any LLM) │  │ (any LLM) │  │ (any LLM) │  │ (any LLM) │
+   └───────────┘  └───────────┘  └───────────┘  └───────────┘  └───────────┘
+                                       │
+                            ┌──────────▼───────────┐
+                            │    tts_server.py      │
+                            │   Kokoro / Qwen3      │
+                            │   (auto-started)      │
+                            └──────────────────────┘
 ```
 
 ## Quick start
@@ -94,14 +105,14 @@ python3 setup.py
 
 The setup wizard will:
 
-- Create a `.venv` virtual environment automatically (handles Debian/Ubuntu PEP 668)
-- Install core dependencies inside the venv
-- Fetch **live models** from OpenRouter (top free + cheapest paid, with live pricing)
-- Walk you through provider and model selection for all five agents
-- **Share API keys automatically** — enter each key once, reused across agents on the same provider
-- Detect your GPU VRAM and recommend the best TTS provider
-- Install the right TTS dependencies and download model files automatically
-- Create your `.env` file
+- Create a `.venv` virtual environment (handles Debian/Ubuntu PEP 668 automatically)
+- Install core dependencies
+- Fetch live models from OpenRouter (free + cheapest paid, filtered for chat capability)
+- Walk you through provider and model selection for all 5 agents
+- Share API keys automatically — enter each key once
+- Detect GPU VRAM and recommend the best TTS option
+- Install TTS dependencies and download model files
+- Write your `.env`
 
 ### 2. Run
 
@@ -109,92 +120,72 @@ The setup wizard will:
 python3 server.py
 ```
 
-The venv is detected automatically — no need to activate it. If TTS is configured, `tts_server.py` starts in the background automatically.
+The venv activates automatically. TTS server starts in the background if configured.
 
 ### 3. Open
 
-Navigate to **http://127.0.0.1:8765**, describe a problem, adjust the number of rounds, and hit **[ launch agents ]**.
+**http://127.0.0.1:8765** — describe a problem, set the rounds, hit **[ launch agents ]**.
 
-## Supported LLM providers
+## Supported providers
 
 | Provider | Setup | Free models? |
 |---|---|---|
-| **OpenRouter** | [openrouter.ai/keys](https://openrouter.ai/keys) | Yes — Llama, Gemini, DeepSeek, Qwen, Mistral and more |
-| **OpenCode Zen** | [opencode.ai/auth](https://opencode.ai/auth) | Some free models (Big Pickle, MiniMax, etc.) |
+| **OpenRouter** | [openrouter.ai/keys](https://openrouter.ai/keys) | Yes — Llama, Gemini, DeepSeek, Qwen, Mistral |
+| **OpenCode Zen** | [opencode.ai/auth](https://opencode.ai/auth) | Some (Big Pickle, MiniMax, Nemotron) |
 | **Google Gemini** | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) | Yes — Gemini 2.0/2.5 Flash |
 | **Anthropic** | [console.anthropic.com](https://console.anthropic.com/) | $5 free credit |
 | **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | No |
 | **xAI Grok** | [console.x.ai](https://console.x.ai/) | Free credits on signup |
 
-> **Cheapest way to run:** Use OpenRouter for all five agents with different free models. Total cost: $0.
-
-You can mix providers — for example, use OpenRouter free models for the four debaters and OpenCode Zen or Anthropic for the chairman to get a higher-quality final verdict.
+> **$0 setup:** Use OpenRouter with free models for all 5 agents. Mix providers for better results — e.g. free models for debaters, a paid model for the chairman.
 
 ## Text-to-Speech
 
-The setup wizard detects your GPU VRAM and recommends the best option. `tts_server.py` starts automatically when you run `server.py` — no second terminal needed.
+| Option | Latency | Size | Hardware |
+|---|---|---|---|
+| **Kokoro-ONNX** (recommended) | Near real-time | ~300MB | Any CPU |
+| **ElevenLabs** (cloud) | ~75ms | — | Internet |
+| **Qwen3-TTS** (local) | 5-15s/sentence | ~1.3GB | 3GB+ RAM |
 
-### Kokoro-ONNX (local — recommended)
-
-82M parameter model, ~300MB download, runs entirely on CPU via ONNX runtime. Near real-time on any modern laptop. No GPU required. Model files download automatically on first run.
-
-### ElevenLabs (cloud)
-
-Highest quality, ~75ms latency. Free tier: 10K characters/month, no credit card needed.
-
-Get a key at [elevenlabs.io/app/settings/api-keys](https://elevenlabs.io/app/settings/api-keys).
-
-### Qwen3-TTS (local — heavy)
-
-600M parameter model, ~1.3GB download, runs on CPU. Richer voice variety than Kokoro but significantly slower.
-
-### TTS hardware guide
-
-| Hardware | Recommendation |
-|---|---|
-| No NVIDIA GPU | Kokoro — runs great on CPU |
-| < 3GB VRAM (e.g. GTX 1050) | Kokoro — Qwen3 will crash |
-| 3–6GB VRAM | Kokoro (faster) or Qwen3 (richer voices) |
-| 6GB+ VRAM | Any — ElevenLabs for best quality |
+The setup wizard detects your GPU and recommends the best option. `tts_server.py` auto-starts with `server.py`.
 
 ## Response quality
 
-Free models can produce garbage outputs — hallucinated multi-character dialogue, leaked classifier labels (`safe`/`unsafe`), or prompt token leaks. GibberLink Revisited handles this automatically:
+Free models sometimes produce garbage — hallucinated multi-character dialogue, leaked safety labels, or prompt token leaks. The server handles this automatically:
 
-- **Sanitization** — strips classifier labels, leaked tokens, HTML tags, and lines where an agent writes dialogue for other agents
-- **Validation** — detects broken responses (gibberish, multi-speaker hallucinations, repeated junk)
-- **Retry** — if a response is broken, retries once with a stricter prompt
-- **Graceful fallback** — if still broken, uses a phase-appropriate fallback response to keep the conversation flowing
+- **Sanitization** — strips classifier labels, leaked tokens, HTML tags, and cross-agent dialogue
+- **Validation** — detects gibberish, multi-speaker hallucinations, and repetitive junk
+- **Retry** — broken responses get one retry with a stricter prompt
+- **Fallback** — if still broken, a phase-appropriate generic response keeps the conversation flowing
 
-For best results, use higher-quality models (paid OpenRouter models, OpenCode Zen, Gemini Flash, or Claude Haiku) for at least the chairman role.
+For best results, use a higher-quality model for at least the chairman (Nexus). His verdict is the most visible output.
 
-## What makes this different from GibberLink?
+## Comparison with the original
 
-| | GibberLink (original) | GibberLink Revisited |
+| | GibberLink | GibberLink Revisited |
 |---|---|---|
-| **Purpose** | AI-to-AI language evolution | Structured problem-solving deliberation |
-| **Agents** | 2 generic | 5 named roles: strategist, creative, skeptic, synthesizer, chairman |
-| **Phases** | 2 (human / protocol) | 4 + chairman verdict |
-| **Output** | Compressed alien language | Proposals, votes, ranked scoreboard, final verdict |
-| **Voting** | None | Agents vote agree/disagree/amend on each proposal |
-| **Chairman** | None | 5th agent synthesizes full deliberation into structured verdict |
-| **Providers** | ElevenLabs only | OpenRouter, OpenCode Zen, Anthropic, OpenAI, Gemini, Grok |
-| **TTS** | ElevenLabs only | ElevenLabs, Kokoro-ONNX, or Qwen3-TTS |
-| **Quality** | No safeguards | Response sanitization, validation, retry, and fallback |
-| **Export** | None | Full JSON transcript with proposals, votes, and verdict |
-| **Setup** | Manual | Wizard — shared API keys, detects hardware, installs deps, writes .env |
+| **Purpose** | AI language evolution | Structured problem-solving |
+| **Agents** | 2 generic | 5 specialized + chairman with veto |
+| **Phases** | 2 | 4 + chairman verdict |
+| **Output** | Compressed alien language | Proposals, weighted votes, reasons, scoreboard, verdict |
+| **Voting** | — | Role-weighted with parallel collection and veto |
+| **Providers** | ElevenLabs only | 6 providers, mix-and-match |
+| **TTS** | ElevenLabs | ElevenLabs, Kokoro, Qwen3 |
+| **Resilience** | — | Sanitization, retry, fallback |
+| **Export** | — | Full JSON with votes, reasons, and verdict |
+| **Setup** | Manual | Wizard with shared keys, hardware detection, live model fetch |
 
 ## Project structure
 
 ```
 gibberlink-revisited/
-├── server.py          # FastAPI backend — orchestrates agents, voting, chairman, TTS, WebSocket
-├── tts_server.py      # Local TTS server (Kokoro or Qwen3, auto-started)
-├── setup.py           # Interactive setup wizard (5 agents + TTS, shared API keys)
+├── server.py          # FastAPI — agents, voting, chairman, TTS, WebSocket
+├── tts_server.py      # Local TTS server (Kokoro / Qwen3, auto-started)
+├── setup.py           # Interactive setup wizard (5 agents, shared keys, TTS)
 ├── static/
-│   └── index.html     # Web frontend — chat UI with voting, scoreboard, consensus tracking
-├── .env.example       # Configuration template
-├── requirements.txt   # Core dependencies (TTS deps installed by setup.py)
+│   └── index.html     # Frontend — chat, voting badges, scoreboard, consensus bar
+├── .env.example
+├── requirements.txt
 ├── logo.svg
 └── README.md
 ```
@@ -202,13 +193,8 @@ gibberlink-revisited/
 ## Reconfiguring
 
 ```bash
-python3 setup.py
-```
-
-Or edit `.env` directly:
-
-```bash
-nano .env
+python3 setup.py       # re-run the wizard
+nano .env              # or edit directly
 ```
 
 ## Problems to try
@@ -229,5 +215,5 @@ MIT
 ## Credits
 
 - Inspired by [GibberLink](https://github.com/PennyroyalTea/gibberlink) by Boris Starkov & Anton Pidkuiko
-- Inspired by [LLM Council](https://github.com/karpathy/llm-council) by Andrej Karpathy — the idea of grouping multiple LLMs into a council that reviews, debates, and synthesizes responses
-- Built with [OpenRouter](https://openrouter.ai), [OpenCode Zen](https://opencode.ai/zen), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS), and whatever LLMs you choose
+- Inspired by [LLM Council](https://github.com/karpathy/llm-council) by Andrej Karpathy
+- Built with [OpenRouter](https://openrouter.ai), [OpenCode Zen](https://opencode.ai/zen), [ElevenLabs](https://elevenlabs.io), [Kokoro-ONNX](https://github.com/thewh1teagle/kokoro-onnx), [Qwen3-TTS](https://github.com/QwenLM/Qwen3-TTS)
