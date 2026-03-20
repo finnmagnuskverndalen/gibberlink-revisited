@@ -1184,7 +1184,7 @@ async def websocket_endpoint(ws: WebSocket):
                 "scoreboard": scored_proposals,
             })
 
-            # Wait for client to finish playing chairman audio
+            # Wait for client ack
             try:
                 await asyncio.wait_for(ws.receive_json(), timeout=120.0)
             except asyncio.TimeoutError:
@@ -1192,6 +1192,46 @@ async def websocket_endpoint(ws: WebSocket):
 
         except Exception as e:
             print(f"  [Chairman] Synthesis failed: {e}")
+            # Build scoreboard even on LLM failure so the client gets the vote data
+            scored_proposals = []
+            for rec in proposal_records:
+                score = 0
+                vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+                for v in rec["votes"].values():
+                    vote_counts[v] = vote_counts.get(v, 0) + 1
+                    if v == "agree": score += 2
+                    elif v == "amend": score += 1
+                scored_proposals.append({
+                    "text": rec["text"], "author": rec["author"], "turn": rec["turn"],
+                    "votes": rec["votes"], "vote_counts": vote_counts, "score": score,
+                })
+            scored_proposals.sort(key=lambda x: x["score"], reverse=True)
+
+            # Send a fallback chairman message so the UI clears the thinking state
+            fallback_text = (
+                f"The council deliberated over {len(messages)} rounds on this problem. "
+                f"{len(proposal_records)} proposal(s) were considered. "
+                f"The chairman was unable to produce a full synthesis due to a technical issue, "
+                f"but the proposal scoreboard below reflects the council's collective judgment."
+            )
+            try:
+                await ws.send_json({
+                    "type": "chairman",
+                    "agent": "chairman",
+                    "agent_name": chairman["name"],
+                    "agent_color": chairman["color"],
+                    "agent_role": chairman["role"],
+                    "text": fallback_text,
+                    "audio": None,
+                    "audio_format": "mp3",
+                    "proposal_records": [
+                        {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                        for r in proposal_records
+                    ],
+                    "scoreboard": scored_proposals,
+                })
+            except Exception:
+                pass
 
         await ws.send_json({
             "type": "complete",

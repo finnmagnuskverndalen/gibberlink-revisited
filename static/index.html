@@ -450,8 +450,10 @@ function connect(topic, turns) {
     }
 
     if (data.type === 'complete') {
+      state.thinking = null;
       state.screen = 'complete';
       state.consensus = data.consensus || 100;
+      if (data.proposal_records) state.proposalRecords = data.proposal_records;
       render();
     }
 
