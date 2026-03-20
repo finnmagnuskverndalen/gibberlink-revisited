@@ -269,6 +269,37 @@ body::after {
 }
 .chairman-audio-btn:hover { border-color: var(--cyan); color: var(--cyan); }
 
+/* Proposal scoreboard in chairman card */
+.scoreboard { margin-top: 12px; border-top: 1px solid rgba(34,211,238,0.15); padding-top: 10px; }
+.scoreboard-title { font-size: 9px; font-weight: 600; color: var(--cyan); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+.scoreboard-title::before { content: '// '; }
+.scoreboard-item {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px;
+}
+.scoreboard-item:last-child { border-bottom: none; }
+.scoreboard-rank {
+  font-size: 12px; font-weight: 600; color: var(--cyan); min-width: 20px; text-align: center;
+  flex-shrink: 0; margin-top: 1px;
+}
+.scoreboard-rank.gold { color: var(--yellow); }
+.scoreboard-rank.silver { color: var(--text-mid); }
+.scoreboard-rank.bronze { color: var(--orange); }
+.scoreboard-body { flex: 1; }
+.scoreboard-proposal-text { color: var(--text); line-height: 1.5; font-size: 10px; }
+.scoreboard-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+.scoreboard-author { font-size: 9px; color: var(--text-dim); }
+.scoreboard-votes { display: flex; gap: 3px; }
+.scoreboard-vote-pill {
+  font-size: 8px; padding: 0px 4px; border: 1px solid; letter-spacing: 0.3px;
+}
+.scoreboard-vote-pill.agree { border-color: rgba(52,211,153,0.3); color: var(--green); }
+.scoreboard-vote-pill.disagree { border-color: rgba(248,113,113,0.3); color: var(--red); }
+.scoreboard-vote-pill.amend { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
+.scoreboard-score {
+  font-size: 9px; color: var(--text-dim); margin-left: auto; flex-shrink: 0;
+}
+
 @media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
 </style>
 </head>
@@ -611,6 +642,34 @@ function renderChairmanVerdict() {
   const v = state.chairmanVerdict;
   if (!v) return '';
   const hasAudio = state.audioData['chairman'];
+  const scoreboard = v.scoreboard || [];
+  const rankColors = ['gold', 'silver', 'bronze'];
+
+  const scoreboardHtml = scoreboard.length > 0 ? `
+    <div class="scoreboard">
+      <div class="scoreboard-title">proposal scoreboard</div>
+      ${scoreboard.map((p, i) => {
+        const rankClass = i < 3 ? rankColors[i] : '';
+        const vc = p.vote_counts || {agree:0, disagree:0, amend:0};
+        return `<div class="scoreboard-item">
+          <div class="scoreboard-rank ${rankClass}">#${i+1}</div>
+          <div class="scoreboard-body">
+            <div class="scoreboard-proposal-text">${esc(p.text)}</div>
+            <div class="scoreboard-meta">
+              <span class="scoreboard-author">by ${esc(p.author)} · t${(p.turn||0)+1}</span>
+              <div class="scoreboard-votes">
+                ${vc.agree ? `<span class="scoreboard-vote-pill agree">${vc.agree} agree</span>` : ''}
+                ${vc.amend ? `<span class="scoreboard-vote-pill amend">${vc.amend} amend</span>` : ''}
+                ${vc.disagree ? `<span class="scoreboard-vote-pill disagree">${vc.disagree} disagree</span>` : ''}
+              </div>
+              <span class="scoreboard-score">${p.score} pts</span>
+            </div>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  ` : '';
+
   return `<div class="chairman-card">
     <div class="chairman-header">
       <div class="chairman-dot"></div>
@@ -619,6 +678,7 @@ function renderChairmanVerdict() {
       <span class="chairman-label">FINAL VERDICT</span>
     </div>
     <div class="chairman-text">${esc(v.text)}</div>
+    ${scoreboardHtml}
     ${hasAudio ? `<button class="chairman-audio-btn" onclick="replayChairmanAudio()">[ replay verdict ]</button>` : ''}
   </div>`;
 }

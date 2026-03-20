@@ -452,17 +452,26 @@ def sanitize_response(text: str, agent_name: str, other_names: list[str]) -> str
             continue
         if stripped.lower() in ("safe", "unsafe"):
             continue
-        if _re.match(r'^S\d+assistant$', stripped, _re.IGNORECASE):
+        if _re.match(r'^S\d+\w*$', stripped, _re.IGNORECASE):
+            continue
+        # Skip lines that look like internal labels (SCAN, PHASE:, etc)
+        if _re.match(r'^(SCAN|PHASE|STIMULUS|CYCLE|FOCUS)\b', stripped, _re.IGNORECASE):
             continue
         # Skip lines where the agent writes dialogue for OTHER agents
         # e.g. "Voss: I think..." when the agent is not Voss
+        # Also catch hallucinated speakers like "Scan:", "You:", etc
         is_other_dialogue = False
         for other in other_names:
-            if stripped.startswith(f"{other}:") or stripped.startswith(f"{other},"):
-                # Only strip if it looks like attributed dialogue, not a natural address
-                if _re.match(rf'^{_re.escape(other)}:\s', stripped):
+            if _re.match(rf'^{_re.escape(other)}\s*:', stripped):
+                is_other_dialogue = True
+                break
+        # Catch any "Name:" pattern that isn't the current agent
+        if not is_other_dialogue:
+            speaker_match = _re.match(r'^([A-Z][a-z]+)\s*:', stripped)
+            if speaker_match:
+                speaker = speaker_match.group(1)
+                if speaker != agent_name and speaker.lower() not in ('proposal', 'note', 'example'):
                     is_other_dialogue = True
-                    break
         if is_other_dialogue:
             continue
         # Skip HTML tags
@@ -577,21 +586,21 @@ def get_system_prompt(agent_name, other_names, phase, proposals, problem, person
 
 # ── LLM Calls ──────────────────────────────────────────────
 
-async def call_llm(provider, api_key, model, messages, system_prompt, retries=3):
+async def call_llm(provider, api_key, model, messages, system_prompt, retries=3, max_tokens=200):
     last_err = None
     for attempt in range(retries):
         try:
             if provider == "anthropic":
-                return await _call_anthropic(api_key, model, messages, system_prompt)
+                return await _call_anthropic(api_key, model, messages, system_prompt, max_tokens)
             elif provider == "gemini":
-                return await _call_gemini(api_key, model, messages, system_prompt)
+                return await _call_gemini(api_key, model, messages, system_prompt, max_tokens)
             else:
                 urls = {
                     "openrouter": "https://openrouter.ai/api/v1/chat/completions",
                     "openai":     "https://api.openai.com/v1/chat/completions",
                     "grok":       "https://api.x.ai/v1/chat/completions",
                 }
-                return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt)
+                return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt, max_tokens)
         except Exception as e:
             last_err = e
             if attempt < retries - 1:
@@ -600,36 +609,36 @@ async def call_llm(provider, api_key, model, messages, system_prompt, retries=3)
                 await asyncio.sleep(wait)
     raise last_err
 
-async def _call_anthropic(api_key, model, messages, system_prompt):
+async def _call_anthropic(api_key, model, messages, system_prompt, max_tokens=200):
     client = await get_client()
     resp = await client.post(
         "https://api.anthropic.com/v1/messages",
         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-        json={"model": model, "max_tokens": 200, "system": system_prompt, "messages": messages},
+        json={"model": model, "max_tokens": max_tokens, "system": system_prompt, "messages": messages},
     )
     data = resp.json()
     if "error" in data: raise RuntimeError(f"Anthropic: {data['error']}")
     return data["content"][0]["text"]
 
-async def _call_openai_compat(api_key, model, url, messages, system_prompt):
+async def _call_openai_compat(api_key, model, url, messages, system_prompt, max_tokens=200):
     client = await get_client()
     resp = await client.post(
         url,
         headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
-        json={"model": model, "max_tokens": 200,
+        json={"model": model, "max_tokens": max_tokens,
               "messages": [{"role": "system", "content": system_prompt}] + messages},
     )
     data = resp.json()
     if "error" in data: raise RuntimeError(f"API error: {data['error']}")
     return data["choices"][0]["message"]["content"]
 
-async def _call_gemini(api_key, model, messages, system_prompt):
+async def _call_gemini(api_key, model, messages, system_prompt, max_tokens=200):
     client = await get_client()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     contents = [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]} for m in messages]
     resp = await client.post(url, headers={"content-type": "application/json"}, json={
         "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents, "generationConfig": {"maxOutputTokens": 200},
+        "contents": contents, "generationConfig": {"maxOutputTokens": max_tokens},
     })
     data = resp.json()
     if "error" in data: raise RuntimeError(f"Gemini: {data['error'].get('message', data['error'])}")
@@ -659,12 +668,13 @@ def extract_proposals(text):
 
     # Fallback: detect natural-language proposals in converge/solution phases
     # These patterns catch common ways free models phrase proposals
+    # Require at least 25 chars to avoid partial junk matches
     _PROPOSAL_PATTERNS = [
-        re.compile(r'(?:I|my|our)\s+propos(?:e|al)\s+(?:is\s+)?(?:that\s+)?(.{15,120})', re.IGNORECASE),
-        re.compile(r'(?:I\s+)?suggest\s+(?:we\s+|that\s+)?(.{15,120})', re.IGNORECASE),
-        re.compile(r'(?:the\s+)?solution\s+(?:is|should\s+be|I\'d\s+recommend)\s+(.{15,120})', re.IGNORECASE),
-        re.compile(r'we\s+should\s+(?:adopt|implement|pursue|go\s+with)\s+(.{15,120})', re.IGNORECASE),
-        re.compile(r'(?:my\s+)?recommendation\s+is\s+(.{15,120})', re.IGNORECASE),
+        re.compile(r'(?:I|my|our)\s+propos(?:e|al)\s+(?:is\s+)?(?:that\s+)?(.{25,200}?)(?:\.|$)', re.IGNORECASE),
+        re.compile(r'(?:I\s+)?suggest\s+(?:we\s+|that\s+)?(.{25,200}?)(?:\.|$)', re.IGNORECASE),
+        re.compile(r'(?:the\s+)?solution\s+(?:is|should\s+be|I\'d\s+recommend)\s+(.{25,200}?)(?:\.|$)', re.IGNORECASE),
+        re.compile(r'we\s+should\s+(?:adopt|implement|pursue|go\s+with)\s+(.{25,200}?)(?:\.|$)', re.IGNORECASE),
+        re.compile(r'(?:my\s+)?recommendation\s+is\s+(?:to\s+)?(.{25,200}?)(?:\.|$)', re.IGNORECASE),
     ]
 
     for pattern in _PROPOSAL_PATTERNS:
@@ -1108,7 +1118,7 @@ async def websocket_endpoint(ws: WebSocket):
             f"5. Remaining caveats or open questions\n\n"
             f"Speak naturally as if delivering a verdict to the council. "
             f"Credit specific council members by name where appropriate. "
-            f"Keep it to 4-6 sentences total. No markdown, no lists, no asterisks."
+            f"Keep it to 6-10 sentences total. No markdown, no lists, no asterisks."
         )
 
         try:
@@ -1116,7 +1126,31 @@ async def websocket_endpoint(ws: WebSocket):
                 chairman["provider"], chairman["api_key"], chairman["model"],
                 [{"role": "user", "content": chairman_prompt}],
                 build_personality(chairman),
+                max_tokens=500,
             )
+
+            # ── Build ranked proposal scoreboard ──
+            # Score: agree=2, amend=1, disagree=0
+            scored_proposals = []
+            for rec in proposal_records:
+                score = 0
+                vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+                for v in rec["votes"].values():
+                    vote_counts[v] = vote_counts.get(v, 0) + 1
+                    if v == "agree":
+                        score += 2
+                    elif v == "amend":
+                        score += 1
+                scored_proposals.append({
+                    "text": rec["text"],
+                    "author": rec["author"],
+                    "turn": rec["turn"],
+                    "votes": rec["votes"],
+                    "vote_counts": vote_counts,
+                    "score": score,
+                })
+            # Sort by score descending
+            scored_proposals.sort(key=lambda x: x["score"], reverse=True)
 
             # Generate TTS for chairman
             chairman_audio_b64 = None
@@ -1146,6 +1180,7 @@ async def websocket_endpoint(ws: WebSocket):
                     {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
                     for r in proposal_records
                 ],
+                "scoreboard": scored_proposals,
             })
 
             # Wait for client to finish playing chairman audio
