@@ -157,13 +157,69 @@ def install_qwen3_deps():
 
 # ── OpenRouter live model fetch ──────────────────────────────
 
-def fetch_openrouter_models(api_key: str):
-    """Fetch available models from OpenRouter, return top free + cheapest paid."""
+# Minimum requirements for a model to work well as a council agent
+_MIN_CONTEXT_LENGTH = 8000       # multi-turn council needs decent context
+_MIN_COMPLETION_TOKENS = 100     # must be able to generate at least short responses
+_REQUIRED_PARAMS = {"max_tokens", "temperature"}  # essential for our prompts
+
+def _is_suitable_model(m: dict) -> bool:
+    """Check if a model is suitable for council deliberation."""
+    # Must support text output
+    arch = m.get("architecture", {})
+    output_mods = arch.get("output_modalities", [])
+    if "text" not in output_mods:
+        return False
+
+    # Must have sufficient context
+    ctx = m.get("context_length", 0)
+    if ctx < _MIN_CONTEXT_LENGTH:
+        return False
+
+    # Must support essential parameters
+    supported = set(m.get("supported_parameters", []))
+    if not _REQUIRED_PARAMS.issubset(supported):
+        return False
+
+    # Must be able to generate reasonable completions
+    top_prov = m.get("top_provider", {})
+    max_comp = top_prov.get("max_completion_tokens", 0)
+    if max_comp and max_comp < _MIN_COMPLETION_TOKENS:
+        return False
+
+    # Skip embedding-only, image-only, or audio-only models
+    mid = m.get("id", "").lower()
+    skip_keywords = ["embed", "tts", "whisper", "dall-e", "stable-diffusion",
+                     "midjourney", "imagen", "music", "vision-preview"]
+    if any(kw in mid for kw in skip_keywords):
+        return False
+
+    return True
+
+
+def _model_cost(m: dict) -> float:
+    """Total cost per million tokens (prompt + completion) for sorting."""
+    pricing = m.get("pricing", {})
     try:
-        with httpx.Client(timeout=10) as client:
+        prompt = float(pricing.get("prompt", "0") or 0)
+        completion = float(pricing.get("completion", "0") or 0)
+        return (prompt + completion) * 1e6  # cost per 1M tokens
+    except (ValueError, TypeError):
+        return 999.0
+
+
+def fetch_openrouter_models(api_key: str):
+    """Fetch available models from OpenRouter, return top free + cheapest paid.
+    
+    Filters for chat-capable models with sufficient context length and
+    required parameter support. Sorts free models by context length (bigger
+    is better for multi-turn debate), paid models by total cost.
+    """
+    try:
+        with httpx.Client(timeout=15) as client:
             resp = client.get(
                 "https://openrouter.ai/api/v1/models",
                 headers={"Authorization": f"Bearer {api_key}"},
+                params={"category": "chat"},
             )
             resp.raise_for_status()
             models = resp.json().get("data", [])
@@ -174,10 +230,10 @@ def fetch_openrouter_models(api_key: str):
     free_models = []
     paid_models = []
 
-    # Build a live pricing lookup keyed by model id
-    live_pricing = {m.get("id", ""): m.get("pricing", {}) for m in models}
-
     for m in models:
+        if not _is_suitable_model(m):
+            continue
+
         mid = m.get("id", "")
         pricing = m.get("pricing", {})
         try:
@@ -188,11 +244,20 @@ def fetch_openrouter_models(api_key: str):
         if mid.endswith(":free") or prompt_cost == 0.0:
             free_models.append(m)
         else:
-            paid_models.append((prompt_cost, m))
+            paid_models.append(m)
 
-    paid_models.sort(key=lambda x: x[0])
-    top_free = free_models[:10]
-    top_paid = [m for _, m in paid_models[:10]]
+    # Free: sort by context length descending (bigger context = better for debate)
+    free_models.sort(key=lambda m: m.get("context_length", 0), reverse=True)
+    # Paid: sort by total cost ascending (cheapest first)
+    paid_models.sort(key=lambda m: _model_cost(m))
+
+    top_free = free_models[:12]
+    top_paid = paid_models[:20]
+
+    total_skipped = len(models) - len(free_models) - len(paid_models)
+    if total_skipped > 0:
+        print(dim(f"  ({total_skipped} models filtered out — embedding, image, low-context, or missing params)"))
+
     return top_free, top_paid
 
 
@@ -201,21 +266,24 @@ def display_models(models, label, start_idx=1):
     for i, m in enumerate(models, start=start_idx):
         name = m.get("name") or m.get("id", "")
         mid = m.get("id", "")
-        ctx = m.get("context_length", "?")
+        ctx = m.get("context_length", 0)
+        ctx_str = f"{ctx//1000}k" if ctx >= 1000 else str(ctx)
         pricing = m.get("pricing", {})
         try:
             cost = float(pricing.get("prompt", 0) or 0)
-            cost_str = "free" if cost == 0 else f"${cost * 1e6:.2f}/M tok"
+            cost_str = "free" if cost == 0 else f"${cost * 1e6:.2f}/M"
         except (ValueError, TypeError):
             cost_str = "?"
-        print(f"    {cyan(str(i).rjust(2))}. {name[:45]:<45} {dim(cost_str)}  {dim(mid)}")
+        print(f"    {cyan(str(i).rjust(2))}. {name[:40]:<40} {dim(ctx_str):>6}  {dim(cost_str):<10} {dim(mid)}")
     return start_idx + len(models)
 
 
 def pick_model(label, free_models, paid_models, default_id):
     """Interactive model picker."""
     all_std = free_models + paid_models
-    next_idx = display_models(free_models, "Top free models")
+    print(dim(f"\n  {'':>4}  {'Model':<40} {'Ctx':>6}  {'Cost':<10} {'ID'}"))
+    print(dim(f"  {'':>4}  {'─'*40} {'─'*6}  {'─'*10} {'─'*30}"))
+    next_idx = display_models(free_models, "Free models (sorted by context length)")
     next_idx = display_models(paid_models, "Cheapest paid models", start_idx=next_idx)
 
     print(f"\n    {cyan('0')}. Enter a custom model ID")
