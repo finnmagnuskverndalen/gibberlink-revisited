@@ -441,97 +441,63 @@ _GARBAGE_PATTERNS = [
 ]
 
 def sanitize_response(text: str, agent_name: str, other_names: list[str]) -> str:
-    """Clean up a raw LLM response — strip garbage, markdown, self-name, enforce length."""
+    """Clean up a raw LLM response, stripping common garbage patterns."""
     if not text:
         return ""
-
-    # ── Strip self-name prefix ("Lyra: I think..." → "I think...") ──
-    self_prefix = _re.compile(rf'^{_re.escape(agent_name)}\s*:\s*', _re.IGNORECASE)
-    text = self_prefix.sub('', text.strip())
-
-    # ── Strip markdown formatting ──
-    # Headers: ### Step 1, ## Proposed Solution, etc
-    text = _re.sub(r'^#{1,6}\s+.*$', '', text, flags=_re.MULTILINE)
-    # Bold: **text** or __text__
-    text = _re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = _re.sub(r'__([^_]+)__', r'\1', text)
-    # Italic: *text* or _text_
-    text = _re.sub(r'\*([^*]+)\*', r'\1', text)
-    # Numbered lists: "1. ", "2. ", etc → strip the number prefix
-    text = _re.sub(r'^\s*\d+\.\s+', '', text, flags=_re.MULTILINE)
-    # Bullet lists: "- " or "* " at start of line
-    text = _re.sub(r'^\s*[-*]\s+', '', text, flags=_re.MULTILINE)
-    # Inline code
-    text = _re.sub(r'`([^`]+)`', r'\1', text)
-    # Horizontal rules
-    text = _re.sub(r'^---+\s*$', '', text, flags=_re.MULTILINE)
-
-    # ── Line-by-line filtering ──
+    # Strip lines that are just "safe" / "unsafe" / classifier labels
     lines = text.split("\n")
     clean_lines = []
     for line in lines:
         stripped = line.strip()
+        # Skip empty lines, pure classifier labels, leaked tokens
         if not stripped:
             continue
         if stripped.lower() in ("safe", "unsafe"):
             continue
         if _re.match(r'^S\d+\w*$', stripped, _re.IGNORECASE):
             continue
+        # Skip lines that look like internal labels (SCAN, PHASE:, etc)
         if _re.match(r'^(SCAN|PHASE|STIMULUS|CYCLE|FOCUS)\b', stripped, _re.IGNORECASE):
             continue
-        # Skip other-agent dialogue
-        is_other = False
+        # Skip lines where the agent writes dialogue for OTHER agents
+        # e.g. "Voss: I think..." when the agent is not Voss
+        # Also catch hallucinated speakers like "Scan:", "You:", etc
+        is_other_dialogue = False
         for other in other_names:
             if _re.match(rf'^{_re.escape(other)}\s*:', stripped):
-                is_other = True
+                is_other_dialogue = True
                 break
-        if not is_other:
+        # Catch any "Name:" pattern that isn't the current agent
+        if not is_other_dialogue:
             speaker_match = _re.match(r'^([A-Z][a-z]+)\s*:', stripped)
             if speaker_match:
                 speaker = speaker_match.group(1)
                 if speaker != agent_name and speaker.lower() not in ('proposal', 'note', 'example'):
-                    is_other = True
-        if is_other:
+                    is_other_dialogue = True
+        if is_other_dialogue:
             continue
+        # Skip HTML tags
         if _re.match(r'^<[^>]+>$', stripped):
             continue
-        clean_lines.append(stripped)
+        clean_lines.append(line)
 
-    result = " ".join(clean_lines).strip()
+    result = "\n".join(clean_lines).strip()
 
-    # ── Strip self-name again (may appear after line joining) ──
-    result = self_prefix.sub('', result.strip())
-
+    # If sanitization removed everything, return a minimal fallback
     if not result or len(result) < 5:
         return ""
 
-    # ── Truncate to max 3 sentences ──
-    result = _truncate_sentences(result, max_sentences=3)
+    # Truncate excessively long responses (should be 1-3 sentences)
+    if len(result) > 800:
+        # Find the last sentence boundary before 800 chars
+        for i in range(min(800, len(result)), 200, -1):
+            if result[i] in '.!?':
+                result = result[:i+1]
+                break
+        else:
+            result = result[:800]
 
     return result
-
-
-def _truncate_sentences(text: str, max_sentences: int = 3) -> str:
-    """Truncate text to at most N sentences, preserving sentence boundaries."""
-    # Split on sentence-ending punctuation followed by space or end
-    parts = _re.split(r'(?<=[.!?])\s+', text)
-    if len(parts) <= max_sentences:
-        return text
-    truncated = " ".join(parts[:max_sentences])
-    # Ensure it ends with punctuation
-    if truncated and truncated[-1] not in '.!?':
-        truncated += '.'
-    return truncated
-
-
-def _responses_are_similar(a: str, b: str) -> bool:
-    """Check if two responses are near-duplicates (for repetition detection)."""
-    words_a = set(a.lower().split())
-    words_b = set(b.lower().split())
-    if not words_a or not words_b:
-        return False
-    overlap = len(words_a & words_b) / max(len(words_a), len(words_b))
-    return overlap > 0.8
 
 def is_response_broken(text: str, agent_name: str) -> bool:
     """Check if a response looks like garbage from a misbehaving model."""
@@ -570,17 +536,15 @@ def get_system_prompt(agent_name, other_names, phase, proposals, problem, person
         f"{personality}\n\n"
         f"You are {agent_name} in a council deliberation with {others}. "
         f"Problem: \"{problem}\". "
-        f"Respond with 1-3 short spoken sentences MAX. "
+        f"Respond with 1-3 short spoken sentences. "
         f"You may address specific council members by name. "
+        f"No markdown, no asterisks, no parentheses for actions, no lists, no emojis. "
         f"Write exactly what you would say out loud in a meeting.\n\n"
         f"CRITICAL RULES:\n"
         f"- You are ONLY {agent_name}. Never write dialogue for other agents.\n"
-        f"- Never prefix your response with your own name (no '{agent_name}: ...').\n"
-        f"- NO markdown: no #headers, no **bold**, no numbered lists, no bullet points, no code blocks.\n"
-        f"- NO narration: don't say 'Here is the plan', 'Let me outline', 'Here are the steps'.\n"
-        f"- NO step-by-step plans. Just speak your point directly.\n"
+        f"- Never write lines like 'Voss: ...' or 'Lyra: ...' — only speak as yourself.\n"
         f"- Never output classification labels, system tokens, or meta-commentary.\n"
-        f"- Keep it SHORT. 1-3 sentences. Then stop."
+        f"- Just speak your piece naturally, as {agent_name}, and stop."
     )
 
     if phase == PHASE_PROBLEM:
@@ -732,25 +696,67 @@ def extract_proposals(text):
         match = pattern.search(text)
         if match:
             proposal = match.group(1).strip().rstrip('.')
-            # Validate: must be a real sentence (contains at least one common verb)
-            _VERBS = re.compile(r'\b(use|implement|create|build|design|deploy|install|configure|set up|establish|develop|combine|integrate|start|adopt|ensure|test|add|make|apply|run|connect|enable)\b', re.IGNORECASE)
-            if proposal and len(proposal) > 25 and _VERBS.search(proposal):
+            if proposal and len(proposal) > 10:
                 proposals.append(proposal)
                 break  # Only extract one fallback proposal per response
 
     return proposals
 
-async def collect_votes(agents, proposal_text, proposal_idx, messages, problem, call_llm_fn):
-    """Ask each agent to silently vote on a proposal. Returns dict of votes."""
-    votes = {}  # agent_id -> "agree" | "disagree" | "amend"
+def _proposals_are_similar(a: str, b: str) -> bool:
+    """Check if two proposals are near-duplicates (simple word overlap)."""
+    words_a = set(a.lower().split())
+    words_b = set(b.lower().split())
+    if not words_a or not words_b:
+        return False
+    overlap = len(words_a & words_b) / max(len(words_a), len(words_b))
+    return overlap > 0.7
+
+
+# Role-based vote weights — skeptic's disagree matters more, synthesizer's agree matters more
+_ROLE_WEIGHTS = {
+    "strategist": 1.2,
+    "creative": 1.0,
+    "skeptic": 1.5,    # skeptic's judgment carries more weight
+    "synthesizer": 1.3, # synthesizer's agreement signals real convergence
+    "chairman": 2.0,    # chairman has veto weight
+}
+
+
+async def collect_votes(agents, chairman, proposal_text, author_id, messages, problem, call_llm_fn):
+    """Ask each agent (+ chairman) to vote on a proposal. Returns dict of votes.
+    
+    - Runs all votes in parallel via asyncio.gather
+    - Excludes the proposer (they're the author)
+    - Includes recent conversation context for informed votes
+    - Collects a 1-sentence reason alongside the vote
+    - Chairman gets a vote too (acts as tiebreaker/veto)
+    """
+    # Build recent context (last 4 messages)
+    recent_context = ""
+    if messages:
+        recent = messages[-4:]
+        context_lines = []
+        for m in recent:
+            speaker = m.get("agent_id", "?")
+            # Find agent name
+            for a in agents:
+                if a["id"] == speaker:
+                    speaker = a["name"]
+                    break
+            context_lines.append(f"  {speaker}: {m['content'][:150]}")
+        recent_context = "\nRecent discussion:\n" + "\n".join(context_lines)
 
     async def get_vote(agent):
         prompt = (
-            f"A proposal has been made in the council deliberation on: \"{problem}\"\n\n"
+            f"A proposal has been made in the council deliberation on: \"{problem}\"\n"
+            f"{recent_context}\n\n"
             f"PROPOSAL: \"{proposal_text}\"\n\n"
-            f"You are {agent['name']} ({agent['role']}). "
-            f"Based on the discussion so far, do you AGREE, DISAGREE, or want to AMEND this proposal?\n"
-            f"Respond with EXACTLY one word: AGREE, DISAGREE, or AMEND. Nothing else."
+            f"You are {agent['name']} ({agent.get('role', '')}).\n"
+            f"Based on the discussion, do you AGREE, DISAGREE, or want to AMEND this proposal?\n"
+            f"Respond in this exact format (2 lines only):\n"
+            f"VOTE: AGREE\n"
+            f"REASON: one short sentence explaining why\n\n"
+            f"Replace AGREE with your actual vote. Nothing else."
         )
         try:
             personality = build_personality(agent)
@@ -759,25 +765,62 @@ async def collect_votes(agents, proposal_text, proposal_idx, messages, problem, 
                 [{"role": "user", "content": prompt}],
                 personality,
             )
-            word = response.strip().upper().split()[0] if response.strip() else "AGREE"
-            if "DISAGREE" in word:
-                return "disagree"
-            elif "AMEND" in word:
-                return "amend"
-            else:
-                return "agree"
+            if not response:
+                return "agree", ""
+
+            # Parse vote
+            text = response.strip()
+            vote = "agree"
+            reason = ""
+            for line in text.split("\n"):
+                line_up = line.strip().upper()
+                if line_up.startswith("VOTE:"):
+                    word = line_up[5:].strip().split()[0] if line_up[5:].strip() else ""
+                    if "DISAGREE" in word:
+                        vote = "disagree"
+                    elif "AMEND" in word:
+                        vote = "amend"
+                    else:
+                        vote = "agree"
+                elif line.strip().upper().startswith("REASON:"):
+                    reason = line.strip()[7:].strip()
+
+            # Fallback: if no VOTE: line found, check first word
+            if "VOTE:" not in text.upper():
+                first = text.split()[0].upper() if text.split() else ""
+                if "DISAGREE" in first:
+                    vote = "disagree"
+                elif "AMEND" in first:
+                    vote = "amend"
+
+            return vote, reason[:150]  # cap reason length
         except Exception:
-            return "agree"  # default on error
+            return "agree", ""
 
-    tasks = []
+    # Build voter list: all debaters except the proposer + chairman
+    voters = []
     for agent in agents:
-        if agent.get("role") != "chairman":  # chairman doesn't vote
-            tasks.append((agent["id"], get_vote(agent)))
+        if agent["id"] != author_id:  # exclude the proposer
+            voters.append(agent)
+    # Chairman always votes (tiebreaker/veto power)
+    voters.append(chairman)
 
-    for agent_id, coro in tasks:
-        votes[agent_id] = await coro
+    # Run all votes in parallel
+    vote_coros = [get_vote(agent) for agent in voters]
+    results = await asyncio.gather(*vote_coros, return_exceptions=True)
 
-    return votes
+    votes = {}
+    reasons = {}
+    for agent, result in zip(voters, results):
+        if isinstance(result, Exception):
+            votes[agent["id"]] = "agree"
+            reasons[agent["id"]] = ""
+        else:
+            vote, reason = result
+            votes[agent["id"]] = vote
+            reasons[agent["id"]] = reason
+
+    return votes, reasons
 
 # ── TTS ─────────────────────────────────────────────────────
 
@@ -989,29 +1032,10 @@ async def websocket_endpoint(ws: WebSocket):
                 agent_msgs.append({"role": "user", "content": f'Problem: "{problem}". Begin your analysis.'})
 
             system_prompt = get_system_prompt(agent_name, others, phase, proposals, problem, personality)
-            response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt, max_tokens=120)
+            response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt)
 
             # ── Sanitize and validate response ──
             response = sanitize_response(response, agent_name, others)
-
-            # ── Repetition detection ──
-            # If this response is >80% similar to a previous message from the same agent, retry
-            is_repetition = any(
-                _responses_are_similar(response, m["content"])
-                for m in messages if m["agent_id"] == agent_id and response
-            )
-            if is_repetition and response:
-                print(f"  [DEDUP] Repetitive response from {agent_name} (turn {turn}), retrying...")
-                try:
-                    retry_prompt = (
-                        f"You are {agent_name}. You already said something very similar before. "
-                        f"Say something NEW about: \"{problem}\". Build on what others said. "
-                        f"1-2 sentences only. No markdown. No lists."
-                    )
-                    response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, retry_prompt, max_tokens=120)
-                    response = sanitize_response(response, agent_name, others)
-                except Exception:
-                    pass
 
             if is_response_broken(response, agent_name):
                 # Retry once with a much stricter prompt
@@ -1042,16 +1066,25 @@ async def websocket_endpoint(ws: WebSocket):
             new_proposals = extract_proposals(response)
             proposals.extend(new_proposals)
 
-            # Collect votes on new proposals (silent — agents don't speak, just vote)
+            # Collect votes on new proposals (parallel, with reasons)
             new_proposal_records = []
             for prop_text in new_proposals:
-                votes = await collect_votes(agents, prop_text, len(proposal_records), messages, problem, call_llm)
+                # Skip near-duplicate proposals
+                is_dup = any(_proposals_are_similar(prop_text, r["text"]) for r in proposal_records)
+                if is_dup:
+                    print(f"  [DEDUP] Skipping duplicate proposal: {prop_text[:60]}...")
+                    continue
+
+                votes, reasons = await collect_votes(
+                    agents, chairman, prop_text, agent_id, messages, problem, call_llm
+                )
                 record = {
                     "text": prop_text,
                     "author": agent_name,
                     "author_id": agent_id,
                     "turn": turn,
-                    "votes": votes,  # {agent_id: "agree"|"disagree"|"amend"}
+                    "votes": votes,
+                    "reasons": reasons,
                 }
                 proposal_records.append(record)
                 new_proposal_records.append(record)
@@ -1085,7 +1118,7 @@ async def websocket_endpoint(ws: WebSocket):
                     "protocol_message": protocol_msg,
                     "proposals": proposals.copy(),
                     "proposal_records": [
-                        {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                        {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
                         for r in proposal_records
                     ],
                     "new_proposals": new_proposals,
@@ -1203,24 +1236,45 @@ async def websocket_endpoint(ws: WebSocket):
             )
 
             # ── Build ranked proposal scoreboard ──
-            # Score: agree=2, amend=1, disagree=0
+            # Role-weighted scoring: agree=2, amend=1, disagree=0, multiplied by role weight
+            # Chairman veto: if chairman disagrees, score is halved
             scored_proposals = []
             for rec in proposal_records:
-                score = 0
+                score = 0.0
                 vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                for v in rec["votes"].values():
+                chairman_vote = None
+                for voter_id, v in rec["votes"].items():
                     vote_counts[v] = vote_counts.get(v, 0) + 1
+                    # Find voter's role for weighting
+                    voter_role = ""
+                    for a in all_agents:
+                        if a["id"] == voter_id:
+                            voter_role = a.get("role", "")
+                            break
+                    weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
                     if v == "agree":
-                        score += 2
+                        score += 2 * weight
                     elif v == "amend":
-                        score += 1
+                        score += 1 * weight
+                    # Track chairman vote for veto
+                    if voter_id == "chairman":
+                        chairman_vote = v
+
+                # Chairman veto: if chairman disagrees, halve the score
+                chairman_vetoed = chairman_vote == "disagree"
+                if chairman_vetoed:
+                    score *= 0.5
+
                 scored_proposals.append({
                     "text": rec["text"],
                     "author": rec["author"],
+                    "author_id": rec.get("author_id", ""),
                     "turn": rec["turn"],
                     "votes": rec["votes"],
+                    "reasons": rec.get("reasons", {}),
                     "vote_counts": vote_counts,
-                    "score": score,
+                    "score": round(score, 1),
+                    "chairman_vetoed": chairman_vetoed,
                 })
             # Sort by score descending
             scored_proposals.sort(key=lambda x: x["score"], reverse=True)
@@ -1246,11 +1300,12 @@ async def websocket_endpoint(ws: WebSocket):
                 "agent_name": chairman["name"],
                 "agent_color": chairman["color"],
                 "agent_role": chairman["role"],
+                "agent_model": chairman.get("model", "").split("/")[-1].split(":")[0],
                 "text": chairman_response,
                 "audio": chairman_audio_b64,
                 "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
                 "proposal_records": [
-                    {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                    {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
                     for r in proposal_records
                 ],
                 "scoreboard": scored_proposals,
@@ -1267,15 +1322,28 @@ async def websocket_endpoint(ws: WebSocket):
             # Build scoreboard even on LLM failure so the client gets the vote data
             scored_proposals = []
             for rec in proposal_records:
-                score = 0
+                score = 0.0
                 vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                for v in rec["votes"].values():
+                chairman_vote = None
+                for voter_id, v in rec["votes"].items():
                     vote_counts[v] = vote_counts.get(v, 0) + 1
-                    if v == "agree": score += 2
-                    elif v == "amend": score += 1
+                    voter_role = ""
+                    for a in all_agents:
+                        if a["id"] == voter_id:
+                            voter_role = a.get("role", "")
+                            break
+                    weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
+                    if v == "agree": score += 2 * weight
+                    elif v == "amend": score += 1 * weight
+                    if voter_id == "chairman": chairman_vote = v
+                chairman_vetoed = chairman_vote == "disagree"
+                if chairman_vetoed: score *= 0.5
                 scored_proposals.append({
-                    "text": rec["text"], "author": rec["author"], "turn": rec["turn"],
-                    "votes": rec["votes"], "vote_counts": vote_counts, "score": score,
+                    "text": rec["text"], "author": rec["author"],
+                    "author_id": rec.get("author_id", ""), "turn": rec["turn"],
+                    "votes": rec["votes"], "reasons": rec.get("reasons", {}),
+                    "vote_counts": vote_counts, "score": round(score, 1),
+                    "chairman_vetoed": chairman_vetoed,
                 })
             scored_proposals.sort(key=lambda x: x["score"], reverse=True)
 
@@ -1293,11 +1361,12 @@ async def websocket_endpoint(ws: WebSocket):
                     "agent_name": chairman["name"],
                     "agent_color": chairman["color"],
                     "agent_role": chairman["role"],
+                    "agent_model": chairman.get("model", "").split("/")[-1].split(":")[0],
                     "text": fallback_text,
                     "audio": None,
                     "audio_format": "mp3",
                     "proposal_records": [
-                        {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                        {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
                         for r in proposal_records
                     ],
                     "scoreboard": scored_proposals,
@@ -1309,7 +1378,7 @@ async def websocket_endpoint(ws: WebSocket):
             "type": "complete",
             "proposals": proposals,
             "proposal_records": [
-                {"text": r["text"], "author": r["author"], "turn": r["turn"], "votes": r["votes"]}
+                {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
                 for r in proposal_records
             ],
             "total_turns": len(messages),
