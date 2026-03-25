@@ -140,6 +140,10 @@ body::after {
 .agent-dot { width: 6px; height: 6px; flex-shrink: 0; }
 .agent-label { color: var(--text); font-weight: 500; }
 .agent-role { font-size: 10px; color: var(--text-dim); }
+.agent-waveform { width: 64px; height: 18px; margin-left: auto; flex-shrink: 0; }
+.agent-waveform canvas { width: 100%; height: 100%; display: block; }
+.agent-info .agent-dot.speaking { animation: speakPulse 0.8s ease-in-out infinite; }
+@keyframes speakPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.8); } }
 .topic-text { font-size: 11px; color: var(--text-mid); line-height: 1.6; }
 
 .stats-row { display: flex; gap: 8px; margin-top: 8px; }
@@ -337,12 +341,81 @@ let state = {
   phase:'problem', turn:0, totalTurns:20, consensus:0,
   thinking:null, lastProtocol:null, showJson:false,
   audioData:{}, stopped:false, topic:'', agentRoster:null,
+  speakingAgent:null, // which agent is currently speaking (for waveform)
 };
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let audioQueue = Promise.resolve();
 let currentSource = null;
+let analyserNode = null;
 
+// ── Message display buffer ──────────────────────────────────
+// Messages from the server are buffered here. They are displayed
+// one at a time: the next message only appears after the previous
+// one's TTS audio finishes playing. Acks are sent to the server
+// immediately on receipt so LLM generation keeps running in the
+// background — this is what keeps the experience smooth.
+let displayQueue = [];
+let isProcessingQueue = false;
+
+function enqueueForDisplay(data) {
+  displayQueue.push(data);
+  if (!isProcessingQueue) processDisplayQueue();
+}
+
+async function processDisplayQueue() {
+  if (isProcessingQueue) return;
+  isProcessingQueue = true;
+
+  while (displayQueue.length > 0) {
+    if (state.stopped) { displayQueue = []; break; }
+    const data = displayQueue.shift();
+
+    if (data._type === 'message') {
+      // Apply state updates (text)
+      state.thinking = null;
+      state.messages.push(data);
+      if (data.proposals) state.proposals = data.proposals;
+      if (data.proposal_records) state.proposalRecords = data.proposal_records;
+      if (data.agent_roster && !state.agentRoster) state.agentRoster = data.agent_roster;
+      state.lastProtocol = data.protocol_message;
+      state.phase = data.phase;
+      state.turn = data.turn + 1;
+      state.consensus = data.consensus || state.consensus;
+      render(); scrollChat();
+
+      // Play audio and wait for it to finish before showing next message
+      if (data.audio && !state.stopped) {
+        try {
+          state.speakingAgent = data.agent;
+          updateWaveforms();
+          await playAudioB64(data.audio, data.audio_format);
+        } catch(e) { console.warn('Audio error:', e); }
+        state.speakingAgent = null;
+        updateWaveforms();
+      }
+
+    } else if (data._type === 'chairman') {
+      state.thinking = null;
+      state.chairmanVerdict = data;
+      if (data.proposal_records) state.proposalRecords = data.proposal_records;
+      render(); scrollChat();
+
+      if (data.audio && !state.stopped) {
+        try {
+          state.speakingAgent = 'chairman';
+          updateWaveforms();
+          await playAudioB64(data.audio, data.audio_format);
+        } catch(e) { console.warn('Audio error:', e); }
+        state.speakingAgent = null;
+        updateWaveforms();
+      }
+    }
+  }
+
+  isProcessingQueue = false;
+}
+
+// ── Audio playback (returns promise that resolves when audio ENDS) ──
 async function playAudioB64(b64, format) {
   try {
     if (audioCtx.state === 'suspended') await audioCtx.resume();
@@ -353,14 +426,113 @@ async function playAudioB64(b64, format) {
     return new Promise(resolve => {
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
-      source.connect(audioCtx.destination);
+
+      // Create analyser for waveform visualization
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 64;
+      source.connect(analyserNode);
+      analyserNode.connect(audioCtx.destination);
+
       currentSource = source;
-      // Safety timeout: resolve even if onended never fires (e.g. tab backgrounded)
-      const timeout = setTimeout(() => { currentSource = null; resolve(); }, (buffer.duration * 1000) + 3000);
-      source.onended = () => { clearTimeout(timeout); currentSource = null; resolve(); };
+      const timeout = setTimeout(() => { currentSource = null; analyserNode = null; resolve(); }, (buffer.duration * 1000) + 3000);
+      source.onended = () => { clearTimeout(timeout); currentSource = null; analyserNode = null; resolve(); };
       source.start();
     });
   } catch(e) { console.warn('Audio playback failed:', e); }
+}
+
+// ── Waveform visualizer ─────────────────────────────────────
+let waveformAnimId = null;
+
+function updateWaveforms() {
+  // Cancel any existing animation
+  if (waveformAnimId) { cancelAnimationFrame(waveformAnimId); waveformAnimId = null; }
+
+  // Update speaking dot classes
+  document.querySelectorAll('.agent-dot').forEach(dot => dot.classList.remove('speaking'));
+
+  if (!state.speakingAgent) {
+    // Clear all canvases to flat line
+    document.querySelectorAll('.agent-waveform canvas').forEach(c => {
+      const ctx = c.getContext('2d');
+      const w = c.width, h = c.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.beginPath();
+      ctx.moveTo(0, h/2);
+      ctx.lineTo(w, h/2);
+      ctx.strokeStyle = 'rgba(58,69,85,0.3)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    });
+    return;
+  }
+
+  // Find the speaking agent's canvas and dot
+  const speakingCanvas = document.getElementById('waveform-' + state.speakingAgent);
+  const speakingDot = document.getElementById('dot-' + state.speakingAgent);
+  if (speakingDot) speakingDot.classList.add('speaking');
+
+  // Clear non-speaking canvases
+  document.querySelectorAll('.agent-waveform canvas').forEach(c => {
+    if (c === speakingCanvas) return;
+    const ctx = c.getContext('2d');
+    const w = c.width, h = c.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.beginPath();
+    ctx.moveTo(0, h/2);
+    ctx.lineTo(w, h/2);
+    ctx.strokeStyle = 'rgba(58,69,85,0.3)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  });
+
+  if (!speakingCanvas) return;
+
+  const agentEl = speakingCanvas.closest('.agent-info');
+  const colorStr = agentEl ? agentEl.dataset.color : '#ff6b3d';
+
+  function drawWaveform() {
+    if (!state.speakingAgent) return;
+    const canvas = speakingCanvas;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const bars = 20;
+    const gap = w / bars;
+    let freqData = null;
+
+    if (analyserNode) {
+      freqData = new Uint8Array(analyserNode.frequencyBinCount);
+      analyserNode.getByteFrequencyData(freqData);
+    }
+
+    for (let i = 0; i < bars; i++) {
+      const x = i * gap + gap / 2;
+      let amp;
+      if (freqData && freqData.length > 0) {
+        // Map bar index to frequency bin
+        const binIdx = Math.floor((i / bars) * freqData.length);
+        amp = (freqData[binIdx] / 255) * (h / 2 - 1);
+      } else {
+        // Fallback: animated sine wave
+        const t = performance.now() / 1000;
+        amp = (Math.sin(t * 6 + i * 0.5) * 0.5 + 0.5) *
+              (Math.sin(t * 3.7 + i * 0.3) * 0.3 + 0.7) *
+              (h / 2 - 1);
+      }
+      amp = Math.max(1, amp);
+
+      ctx.fillStyle = colorStr;
+      ctx.globalAlpha = 0.5 + (amp / (h/2)) * 0.5;
+      ctx.fillRect(x - 1, h/2 - amp, 2, amp * 2);
+      ctx.globalAlpha = 1;
+    }
+
+    waveformAnimId = requestAnimationFrame(drawWaveform);
+  }
+
+  drawWaveform();
 }
 
 // ── TTS health poll ──
@@ -400,60 +572,42 @@ function connect(topic, turns) {
     const data = JSON.parse(e.data);
 
     if (data.type === 'thinking') {
-      state.thinking = data.agent;
-      state.phase = data.phase;
-      state.turn = data.turn;
-      render(); scrollChat();
+      // Only update thinking if the display queue is empty (i.e. not mid-playback).
+      // If we're still playing a previous message, the thinking indicator will
+      // show after the queue drains naturally.
+      if (!isProcessingQueue && displayQueue.length === 0) {
+        state.thinking = data.agent;
+        state.phase = data.phase;
+        state.turn = data.turn;
+        render(); scrollChat();
+      }
     }
 
     if (data.type === 'message') {
-      state.thinking = null;
-      state.messages.push(data);
+      // Store audio data for replay
       if (data.audio) state.audioData[data.turn] = {b64: data.audio, format: data.audio_format || 'mp3'};
-      if (data.proposals) state.proposals = data.proposals;
-      if (data.proposal_records) state.proposalRecords = data.proposal_records;
-      if (data.agent_roster && !state.agentRoster) state.agentRoster = data.agent_roster;
-      state.lastProtocol = data.protocol_message;
-      state.phase = data.phase;
-      state.turn = data.turn + 1;
-      state.consensus = data.consensus || state.consensus;
-      render(); scrollChat();
 
-      // Ack IMMEDIATELY so the server can start generating the next turn
+      // Ack IMMEDIATELY so the server starts generating the next turn
+      // while the client is still playing the current one's audio.
       if (!state.stopped && ws.readyState === 1) {
         ws.send(JSON.stringify({type:'ack'}));
       }
 
-      // Queue audio playback in the background
-      if (data.audio) {
-        audioQueue = audioQueue.then(async () => {
-          if (!state.stopped) {
-            try { await playAudioB64(data.audio, data.audio_format); } catch(e) { console.warn('Audio error:', e); }
-          }
-        }).catch(e => { console.warn('Audio queue error:', e); });
-      }
+      // Buffer the message — it will be displayed + played sequentially
+      data._type = 'message';
+      enqueueForDisplay(data);
     }
 
     if (data.type === 'chairman') {
-      state.thinking = null;
-      state.chairmanVerdict = data;
-      if (data.proposal_records) state.proposalRecords = data.proposal_records;
       if (data.audio) state.audioData['chairman'] = {b64: data.audio, format: data.audio_format || 'mp3'};
-      render(); scrollChat();
 
       // Ack immediately
       if (!state.stopped && ws.readyState === 1) {
         ws.send(JSON.stringify({type:'ack'}));
       }
 
-      // Queue chairman audio
-      if (data.audio) {
-        audioQueue = audioQueue.then(async () => {
-          if (!state.stopped) {
-            try { await playAudioB64(data.audio, data.audio_format); } catch(e) { console.warn('Audio error:', e); }
-          }
-        }).catch(e => { console.warn('Audio queue error:', e); });
-      }
+      data._type = 'chairman';
+      enqueueForDisplay(data);
     }
 
     if (data.type === 'complete') {
@@ -551,8 +705,13 @@ function startConversation() {
 
 function stopConversation() {
   state.stopped = true;
+  state.speakingAgent = null;
+  displayQueue = [];
+  isProcessingQueue = false;
+  if (waveformAnimId) { cancelAnimationFrame(waveformAnimId); waveformAnimId = null; }
   try { currentSource?.stop(); } catch(e) {}
   currentSource = null;
+  analyserNode = null;
   if (state.ws) { state.ws.close(); state.ws = null; }
   state.screen = 'complete';
   render();
@@ -565,7 +724,10 @@ function resetApp() {
     phase:'problem', turn:0, totalTurns:16,
     consensus:0, thinking:null, lastProtocol:null, showJson:false,
     audioData:{}, stopped:false, topic:'', agentRoster:null,
+    speakingAgent:null,
   };
+  displayQueue = [];
+  isProcessingQueue = false;
   render();
 }
 
@@ -593,7 +755,16 @@ function toggleJson() { state.showJson = !state.showJson; render(); scrollChat()
 
 async function replayAudio(turn) {
   const ad = state.audioData[turn];
-  if (ad) { try { await playAudioB64(ad.b64, ad.format); } catch(e) { console.warn(e); } }
+  if (!ad) return;
+  // Find which agent spoke on this turn
+  const msg = state.messages.find(m => m.turn === turn);
+  const agentId = msg ? msg.agent : null;
+  try {
+    if (agentId) { state.speakingAgent = agentId; updateWaveforms(); }
+    await playAudioB64(ad.b64, ad.format);
+  } catch(e) { console.warn(e); }
+  state.speakingAgent = null;
+  updateWaveforms();
 }
 
 function syntaxHighlight(json) {
@@ -710,7 +881,12 @@ function renderChairmanVerdict() {
 
 async function replayChairmanAudio() {
   const ad = state.audioData['chairman'];
-  if (ad) { try { await playAudioB64(ad.b64, ad.format); } catch(e) { console.warn(e); } }
+  if (!ad) return;
+  try {
+    state.speakingAgent = 'chairman'; updateWaveforms();
+    await playAudioB64(ad.b64, ad.format);
+  } catch(e) { console.warn(e); }
+  state.speakingAgent = null; updateWaveforms();
 }
 
 function renderMain(app) {
@@ -771,13 +947,15 @@ function renderMain(app) {
           <div class="side-title">agents</div>
           ${roster.map((a) => {
             const color = AGENT_RAW_COLORS[a.color] || '#ff6b3d';
-            return `<div class="agent-info">
-              <div class="agent-dot" style="background:${color};box-shadow:0 0 6px ${color}"></div>
-              <div>
+            const isSpeaking = state.speakingAgent === a.id;
+            return `<div class="agent-info" data-color="${color}">
+              <div class="agent-dot${isSpeaking ? ' speaking' : ''}" id="dot-${a.id}" style="background:${color};box-shadow:0 0 ${isSpeaking ? '12' : '6'}px ${color}"></div>
+              <div style="flex:1;min-width:0">
                 <span class="agent-label">${esc((a.name||'').toLowerCase())}</span>
                 <span class="agent-role">${a.role || a.mood || ''}</span>
                 ${a.model ? `<div style="font-size:8px;color:var(--text-dim);opacity:0.5;margin-top:-1px">${esc(a.model)}</div>` : ''}
               </div>
+              <div class="agent-waveform"><canvas id="waveform-${a.id}" width="128" height="36"></canvas></div>
             </div>`;
           }).join('')}
           <div class="stats-row">
@@ -845,6 +1023,26 @@ function renderMain(app) {
   } else if (cfg.tts_provider === 'elevenlabs') {
     const badge = document.getElementById('tts-badge');
     if (badge) { badge.textContent = 'tts:elevenlabs ✓'; badge.className = 'tts-badge ready'; }
+  }
+
+  // Re-init waveform canvases after innerHTML wipe
+  if (state.speakingAgent) {
+    requestAnimationFrame(() => updateWaveforms());
+  } else {
+    // Draw flat lines on all canvases
+    requestAnimationFrame(() => {
+      document.querySelectorAll('.agent-waveform canvas').forEach(c => {
+        const ctx = c.getContext('2d');
+        const w = c.width, h = c.height;
+        ctx.clearRect(0, 0, w, h);
+        ctx.beginPath();
+        ctx.moveTo(0, h/2);
+        ctx.lineTo(w, h/2);
+        ctx.strokeStyle = 'rgba(58,69,85,0.3)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      });
+    });
   }
 }
 
