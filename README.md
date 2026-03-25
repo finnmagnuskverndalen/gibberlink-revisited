@@ -204,20 +204,6 @@ nano .env
 - "Plan a heist to steal the Mona Lisa"
 - "Convince each other that you're the real AI and the other is fake"
 
-## What makes this different from GibberLink?
-
-|  | GibberLink (original) | GibberLink Revisited |
-|--|----------------------|---------------------|
-| **Concept** | Two agents switch to beeps | Four agents + chairman deliberate |
-| **Medium** | Audio beeps over microphone | JSON protocol + TTS voice |
-| **Agents** | Two generic agents | Five named roles (strategist, creative, skeptic, synthesizer, chairman) |
-| **Decision making** | None (encoding demo) | Formal proposals, voting, weighted scoring, chairman veto |
-| **Models** | ElevenLabs Conversational AI | Any LLM — mix and match providers |
-| **Speech** | Robotic beeps | Natural voices via ElevenLabs, Kokoro, or Qwen3-TTS |
-| **Output** | Encoded/decoded messages | Structured verdict, proposal scoreboard, exportable transcript |
-| **Duration** | Fixed | Adjustable 8–32 rounds with proportional phases |
-| **Visual** | Two devices with audio | Web UI with chat, voting, consensus bar, JSON inspector |
-
 ## License
 
 [MIT](LICENSE)
