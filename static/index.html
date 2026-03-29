@@ -712,7 +712,18 @@ function stopConversation() {
   try { currentSource?.stop(); } catch(e) {}
   currentSource = null;
   analyserNode = null;
-  if (state.ws) { state.ws.close(); state.ws = null; }
+  // Send a stop signal so the server cancels pending LLM tasks
+  if (state.ws && state.ws.readyState === 1) {
+    try { state.ws.send(JSON.stringify({type: 'stop'})); } catch(e) {}
+    // Give the server a moment to process, then close
+    setTimeout(() => {
+      try { state.ws?.close(); } catch(e) {}
+      state.ws = null;
+    }, 300);
+  } else {
+    state.ws = null;
+  }
+  state.thinking = null;
   state.screen = 'complete';
   render();
 }

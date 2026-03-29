@@ -586,6 +586,47 @@ def get_system_prompt(agent_name, other_names, phase, proposals, problem, person
 
     return base
 
+# ── Human-readable error messages ──────────────────────────
+
+def _friendly_error(exc: Exception) -> str:
+    """Convert raw LLM/TTS exceptions into user-friendly messages."""
+    msg = str(exc)
+    ml = msg.lower()
+
+    # Rate limiting
+    if "rate_limit" in ml or "429" in ml or "too many requests" in ml:
+        return "Rate limited by the API provider. Wait a moment and try again, or switch to a different model."
+    # Auth failures
+    if "401" in ml or "unauthorized" in ml or "invalid.*key" in _re.sub(r'\s+', '', ml) or "authentication" in ml:
+        return "API key is invalid or expired. Re-run `python3 setup.py` to reconfigure."
+    # Model not found
+    if "404" in ml or "not found" in ml or "does not exist" in ml or "model_not_found" in ml:
+        return "Model not found — it may have been removed or renamed. Re-run `python3 setup.py` to pick a new model."
+    # Quota / billing
+    if "quota" in ml or "billing" in ml or "insufficient" in ml or "payment" in ml:
+        return "API quota exhausted or billing issue. Check your account balance, or switch to a free model on OpenRouter."
+    # Timeout
+    if "timeout" in ml or "timed out" in ml:
+        return "The API took too long to respond. The provider may be overloaded — try again or switch models."
+    # Context length
+    if "context" in ml and "length" in ml or "too long" in ml or "token" in ml and "limit" in ml:
+        return "The conversation exceeded the model's context window. Try using fewer turns or a model with a larger context."
+    # Content filter
+    if "content_filter" in ml or "safety" in ml or "blocked" in ml or "moderation" in ml:
+        return "The model's content filter blocked the response. Try rephrasing the topic."
+    # Connection errors
+    if "connect" in ml and ("refused" in ml or "error" in ml):
+        return "Could not connect to the API provider. Check your internet connection."
+    # Empty response
+    if "empty" in ml and "response" in ml:
+        return "The model returned an empty response. This sometimes happens with free models — try again."
+
+    # Fallback: truncate raw message but keep it somewhat readable
+    clean = msg.replace("RuntimeError: ", "").replace("API error: ", "")
+    if len(clean) > 200:
+        clean = clean[:200] + "..."
+    return f"LLM error: {clean}"
+
 # ── LLM Calls ──────────────────────────────────────────────
 
 async def call_llm(provider, api_key, model, messages, system_prompt, retries=3, max_tokens=200):
@@ -932,10 +973,21 @@ async def tts_health():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    _session_stopped = False          # set True when client sends stop or disconnects
+    _background_tasks: set[asyncio.Task] = set()   # track all spawned tasks for cleanup
     try:
         start_msg   = await ws.receive_json()
-        problem     = start_msg.get("topic", "How to reduce meeting fatigue in remote teams")
-        total_turns = min(max(int(start_msg.get("turns", TOTAL_TURNS)), 6), 40)
+
+        # ── Input validation ──────────────────────────────────
+        raw_topic = start_msg.get("topic", "How to reduce meeting fatigue in remote teams")
+        if not isinstance(raw_topic, str) or not raw_topic.strip():
+            raw_topic = "How to reduce meeting fatigue in remote teams"
+        problem = raw_topic.strip()[:500]  # cap at 500 chars to avoid context window bloat
+
+        try:
+            total_turns = min(max(int(start_msg.get("turns", TOTAL_TURNS)), 6), 40)
+        except (ValueError, TypeError):
+            total_turns = TOTAL_TURNS
 
         # Build agent roster (4 debaters + chairman)
         requested = start_msg.get("agents", None)
@@ -1016,9 +1068,19 @@ async def websocket_endpoint(ws: WebSocket):
             # NOTE: thinking is sent from the main loop, not here,
             # to avoid racing with other WebSocket sends when pipelined.
 
-            # Build conversation history for this agent
+            # Build conversation history for this agent.
+            # Use a sliding window to avoid overflowing small context windows.
+            # Keep the first 2 messages (problem framing) + the last MAX_HISTORY
+            # messages so agents have both context and recency.
+            MAX_HISTORY = 16  # ~16 turns of context is plenty for most models
+
+            history_source = messages
+            if len(messages) > MAX_HISTORY + 2:
+                # Keep first 2 (problem framing) + last MAX_HISTORY
+                history_source = messages[:2] + messages[-(MAX_HISTORY):]
+
             agent_msgs = []
-            for m in messages:
+            for m in history_source:
                 role = "assistant" if m["agent_id"] == agent_id else "user"
                 content = m["content"]
                 if role == "user" and len(agents) > 2:
@@ -1148,6 +1210,10 @@ async def websocket_endpoint(ws: WebSocket):
         pending_task = None
 
         for turn in range(total_turns):
+            # ── Check for stop signal ──
+            if _session_stopped:
+                break
+
             # If we have a pre-started task from the previous iteration, use it.
             # Otherwise start fresh (first turn, or after an error).
             if pending_task is None:
@@ -1157,13 +1223,18 @@ async def websocket_endpoint(ws: WebSocket):
                 agent_id = agents[agent_idx]["id"]
                 await ws.send_json({"type": "thinking", "agent": agent_id, "turn": turn, "phase": phase})
                 pending_task = asyncio.create_task(build_turn(turn))
+                _background_tasks.add(pending_task)
+                pending_task.add_done_callback(_background_tasks.discard)
 
             try:
                 result = await pending_task
                 pending_task = None
             except Exception as e:
                 pending_task = None
-                await ws.send_json({"type": "error", "message": str(e)})
+                await ws.send_json({"type": "error", "message": _friendly_error(e)})
+                break
+
+            if _session_stopped:
                 break
 
             # Send the message payload (text + audio)
@@ -1171,190 +1242,130 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Pre-start the NEXT turn's LLM+TTS while the client plays audio.
             # Send its thinking indicator now (sequentially, safe).
-            if turn + 1 < total_turns:
+            if turn + 1 < total_turns and not _session_stopped:
                 next_phase = get_phase(turn + 1)
                 next_agent_idx = (turn + 1) % len(agents)
                 next_agent_id = agents[next_agent_idx]["id"]
                 await ws.send_json({"type": "thinking", "agent": next_agent_id, "turn": turn + 1, "phase": next_phase})
                 pending_task = asyncio.create_task(build_turn(turn + 1))
+                _background_tasks.add(pending_task)
+                pending_task.add_done_callback(_background_tasks.discard)
 
-            # Wait for client ack (sent after audio finishes or immediately if no audio)
+            # Wait for client ack — also listen for stop signal
             try:
-                await asyncio.wait_for(ws.receive_json(), timeout=120.0)
+                ack_msg = await asyncio.wait_for(ws.receive_json(), timeout=120.0)
+                if isinstance(ack_msg, dict) and ack_msg.get("type") == "stop":
+                    _session_stopped = True
+                    break
             except asyncio.TimeoutError:
                 pass
 
         # ── Chairman synthesis ──────────────────────────────────────
         # Nexus (the Chairman) sees the full deliberation and produces
         # a structured final verdict with TTS.
+        # Skip if the session was stopped early by the user.
 
-        await ws.send_json({"type": "thinking", "agent": "chairman", "turn": total_turns, "phase": "synthesis"})
+        if not _session_stopped and messages:
+            await ws.send_json({"type": "thinking", "agent": "chairman", "turn": total_turns, "phase": "synthesis"})
 
-        # Build the full transcript for the chairman
-        transcript_lines = []
-        for m in messages:
-            speaker = next((a["name"] for a in agents if a["id"] == m["agent_id"]), m["agent_id"])
-            transcript_lines.append(f"{speaker} [{m['phase']}]: {m['content']}")
-        transcript = "\n".join(transcript_lines)
+            # Build the full transcript for the chairman
+            transcript_lines = []
+            for m in messages:
+                speaker = next((a["name"] for a in agents if a["id"] == m["agent_id"]), m["agent_id"])
+                transcript_lines.append(f"{speaker} [{m['phase']}]: {m['content']}")
+            transcript = "\n".join(transcript_lines)
 
         # Build proposal summary with votes
-        prop_summary = ""
-        if proposal_records:
-            prop_lines = []
-            for i, rec in enumerate(proposal_records):
-                vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                for v in rec["votes"].values():
-                    vote_counts[v] = vote_counts.get(v, 0) + 1
-                prop_lines.append(
-                    f"  Proposal {i+1} by {rec['author']}: \"{rec['text']}\" "
-                    f"— Votes: {vote_counts['agree']} agree, {vote_counts['disagree']} disagree, {vote_counts['amend']} amend"
+            prop_summary = ""
+            if proposal_records:
+                prop_lines = []
+                for i, rec in enumerate(proposal_records):
+                    vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+                    for v in rec["votes"].values():
+                        vote_counts[v] = vote_counts.get(v, 0) + 1
+                    prop_lines.append(
+                        f"  Proposal {i+1} by {rec['author']}: \"{rec['text']}\" "
+                        f"— Votes: {vote_counts['agree']} agree, {vote_counts['disagree']} disagree, {vote_counts['amend']} amend"
+                    )
+                prop_summary = "\nProposals and votes:\n" + "\n".join(prop_lines)
+
+            chairman_prompt = (
+                f"You are Nexus, the Chairman of this council. You have observed the entire deliberation.\n\n"
+                f"Problem: \"{problem}\"\n\n"
+                f"Full transcript:\n{transcript}\n"
+                f"{prop_summary}\n\n"
+                f"Produce a clear, structured FINAL VERDICT. Include:\n"
+                f"1. The problem as the council understood it (1 sentence)\n"
+                f"2. Key points of agreement\n"
+                f"3. Key points of disagreement\n"
+                f"4. The recommended solution (synthesize the best ideas)\n"
+                f"5. Remaining caveats or open questions\n\n"
+                f"Speak naturally as if delivering a verdict to the council. "
+                f"Credit specific council members by name where appropriate. "
+                f"Keep it to 6-10 sentences total. No markdown, no lists, no asterisks."
+            )
+
+            try:
+                chairman_response = await call_llm(
+                    chairman["provider"], chairman["api_key"], chairman["model"],
+                    [{"role": "user", "content": chairman_prompt}],
+                    build_personality(chairman),
+                    max_tokens=500,
                 )
-            prop_summary = "\nProposals and votes:\n" + "\n".join(prop_lines)
 
-        chairman_prompt = (
-            f"You are Nexus, the Chairman of this council. You have observed the entire deliberation.\n\n"
-            f"Problem: \"{problem}\"\n\n"
-            f"Full transcript:\n{transcript}\n"
-            f"{prop_summary}\n\n"
-            f"Produce a clear, structured FINAL VERDICT. Include:\n"
-            f"1. The problem as the council understood it (1 sentence)\n"
-            f"2. Key points of agreement\n"
-            f"3. Key points of disagreement\n"
-            f"4. The recommended solution (synthesize the best ideas)\n"
-            f"5. Remaining caveats or open questions\n\n"
-            f"Speak naturally as if delivering a verdict to the council. "
-            f"Credit specific council members by name where appropriate. "
-            f"Keep it to 6-10 sentences total. No markdown, no lists, no asterisks."
-        )
+                # ── Build ranked proposal scoreboard ──
+                scored_proposals = []
+                for rec in proposal_records:
+                    score = 0.0
+                    vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+                    chairman_vote = None
+                    for voter_id, v in rec["votes"].items():
+                        vote_counts[v] = vote_counts.get(v, 0) + 1
+                        voter_role = ""
+                        for a in all_agents:
+                            if a["id"] == voter_id:
+                                voter_role = a.get("role", "")
+                                break
+                        weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
+                        if v == "agree":
+                            score += 2 * weight
+                        elif v == "amend":
+                            score += 1 * weight
+                        if voter_id == "chairman":
+                            chairman_vote = v
 
-        try:
-            chairman_response = await call_llm(
-                chairman["provider"], chairman["api_key"], chairman["model"],
-                [{"role": "user", "content": chairman_prompt}],
-                build_personality(chairman),
-                max_tokens=500,
-            )
+                    chairman_vetoed = chairman_vote == "disagree"
+                    if chairman_vetoed:
+                        score *= 0.5
 
-            # ── Build ranked proposal scoreboard ──
-            # Role-weighted scoring: agree=2, amend=1, disagree=0, multiplied by role weight
-            # Chairman veto: if chairman disagrees, score is halved
-            scored_proposals = []
-            for rec in proposal_records:
-                score = 0.0
-                vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                chairman_vote = None
-                for voter_id, v in rec["votes"].items():
-                    vote_counts[v] = vote_counts.get(v, 0) + 1
-                    # Find voter's role for weighting
-                    voter_role = ""
-                    for a in all_agents:
-                        if a["id"] == voter_id:
-                            voter_role = a.get("role", "")
-                            break
-                    weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
-                    if v == "agree":
-                        score += 2 * weight
-                    elif v == "amend":
-                        score += 1 * weight
-                    # Track chairman vote for veto
-                    if voter_id == "chairman":
-                        chairman_vote = v
+                    scored_proposals.append({
+                        "text": rec["text"],
+                        "author": rec["author"],
+                        "author_id": rec.get("author_id", ""),
+                        "turn": rec["turn"],
+                        "votes": rec["votes"],
+                        "reasons": rec.get("reasons", {}),
+                        "vote_counts": vote_counts,
+                        "score": round(score, 1),
+                        "chairman_vetoed": chairman_vetoed,
+                    })
+                scored_proposals.sort(key=lambda x: x["score"], reverse=True)
 
-                # Chairman veto: if chairman disagrees, halve the score
-                chairman_vetoed = chairman_vote == "disagree"
-                if chairman_vetoed:
-                    score *= 0.5
+                # Generate TTS for chairman
+                chairman_audio_b64 = None
+                if TTS_ENABLED:
+                    if EFFECTIVE_TTS == "kokoro":
+                        ch_voice = chairman["voice_kokoro"]
+                    elif EFFECTIVE_TTS == "qwen3":
+                        ch_voice = chairman["voice_qwen3"]
+                    else:
+                        ch_voice = chairman["voice_el"]
+                    tts_text = clean_for_tts(chairman_response)
+                    if tts_text:
+                        audio_bytes = await generate_tts(tts_text, ch_voice)
+                        if audio_bytes:
+                            chairman_audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-                scored_proposals.append({
-                    "text": rec["text"],
-                    "author": rec["author"],
-                    "author_id": rec.get("author_id", ""),
-                    "turn": rec["turn"],
-                    "votes": rec["votes"],
-                    "reasons": rec.get("reasons", {}),
-                    "vote_counts": vote_counts,
-                    "score": round(score, 1),
-                    "chairman_vetoed": chairman_vetoed,
-                })
-            # Sort by score descending
-            scored_proposals.sort(key=lambda x: x["score"], reverse=True)
-
-            # Generate TTS for chairman
-            chairman_audio_b64 = None
-            if TTS_ENABLED:
-                if EFFECTIVE_TTS == "kokoro":
-                    ch_voice = chairman["voice_kokoro"]
-                elif EFFECTIVE_TTS == "qwen3":
-                    ch_voice = chairman["voice_qwen3"]
-                else:
-                    ch_voice = chairman["voice_el"]
-                tts_text = clean_for_tts(chairman_response)
-                if tts_text:
-                    audio_bytes = await generate_tts(tts_text, ch_voice)
-                    if audio_bytes:
-                        chairman_audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-
-            await ws.send_json({
-                "type": "chairman",
-                "agent": "chairman",
-                "agent_name": chairman["name"],
-                "agent_color": chairman["color"],
-                "agent_role": chairman["role"],
-                "agent_model": chairman.get("model", "").split("/")[-1].split(":")[0],
-                "text": chairman_response,
-                "audio": chairman_audio_b64,
-                "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
-                "proposal_records": [
-                    {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
-                    for r in proposal_records
-                ],
-                "scoreboard": scored_proposals,
-            })
-
-            # Wait for client ack
-            try:
-                await asyncio.wait_for(ws.receive_json(), timeout=120.0)
-            except asyncio.TimeoutError:
-                pass
-
-        except Exception as e:
-            print(f"  [Chairman] Synthesis failed: {e}")
-            # Build scoreboard even on LLM failure so the client gets the vote data
-            scored_proposals = []
-            for rec in proposal_records:
-                score = 0.0
-                vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                chairman_vote = None
-                for voter_id, v in rec["votes"].items():
-                    vote_counts[v] = vote_counts.get(v, 0) + 1
-                    voter_role = ""
-                    for a in all_agents:
-                        if a["id"] == voter_id:
-                            voter_role = a.get("role", "")
-                            break
-                    weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
-                    if v == "agree": score += 2 * weight
-                    elif v == "amend": score += 1 * weight
-                    if voter_id == "chairman": chairman_vote = v
-                chairman_vetoed = chairman_vote == "disagree"
-                if chairman_vetoed: score *= 0.5
-                scored_proposals.append({
-                    "text": rec["text"], "author": rec["author"],
-                    "author_id": rec.get("author_id", ""), "turn": rec["turn"],
-                    "votes": rec["votes"], "reasons": rec.get("reasons", {}),
-                    "vote_counts": vote_counts, "score": round(score, 1),
-                    "chairman_vetoed": chairman_vetoed,
-                })
-            scored_proposals.sort(key=lambda x: x["score"], reverse=True)
-
-            # Send a fallback chairman message so the UI clears the thinking state
-            fallback_text = (
-                f"The council deliberated over {len(messages)} rounds on this problem. "
-                f"{len(proposal_records)} proposal(s) were considered. "
-                f"The chairman was unable to produce a full synthesis due to a technical issue, "
-                f"but the proposal scoreboard below reflects the council's collective judgment."
-            )
-            try:
                 await ws.send_json({
                     "type": "chairman",
                     "agent": "chairman",
@@ -1362,17 +1373,77 @@ async def websocket_endpoint(ws: WebSocket):
                     "agent_color": chairman["color"],
                     "agent_role": chairman["role"],
                     "agent_model": chairman.get("model", "").split("/")[-1].split(":")[0],
-                    "text": fallback_text,
-                    "audio": None,
-                    "audio_format": "mp3",
+                    "text": chairman_response,
+                    "audio": chairman_audio_b64,
+                    "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
                     "proposal_records": [
                         {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
                         for r in proposal_records
                     ],
                     "scoreboard": scored_proposals,
                 })
-            except Exception:
-                pass
+
+                # Wait for client ack
+                try:
+                    await asyncio.wait_for(ws.receive_json(), timeout=120.0)
+                except asyncio.TimeoutError:
+                    pass
+
+            except Exception as e:
+                print(f"  [Chairman] Synthesis failed: {e}")
+                # Build scoreboard even on LLM failure so the client gets the vote data
+                scored_proposals = []
+                for rec in proposal_records:
+                    score = 0.0
+                    vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+                    chairman_vote = None
+                    for voter_id, v in rec["votes"].items():
+                        vote_counts[v] = vote_counts.get(v, 0) + 1
+                        voter_role = ""
+                        for a in all_agents:
+                            if a["id"] == voter_id:
+                                voter_role = a.get("role", "")
+                                break
+                        weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
+                        if v == "agree": score += 2 * weight
+                        elif v == "amend": score += 1 * weight
+                        if voter_id == "chairman": chairman_vote = v
+                    chairman_vetoed = chairman_vote == "disagree"
+                    if chairman_vetoed: score *= 0.5
+                    scored_proposals.append({
+                        "text": rec["text"], "author": rec["author"],
+                        "author_id": rec.get("author_id", ""), "turn": rec["turn"],
+                        "votes": rec["votes"], "reasons": rec.get("reasons", {}),
+                        "vote_counts": vote_counts, "score": round(score, 1),
+                        "chairman_vetoed": chairman_vetoed,
+                    })
+                scored_proposals.sort(key=lambda x: x["score"], reverse=True)
+
+                fallback_text = (
+                    f"The council deliberated over {len(messages)} rounds on this problem. "
+                    f"{len(proposal_records)} proposal(s) were considered. "
+                    f"The chairman was unable to produce a full synthesis due to a technical issue, "
+                    f"but the proposal scoreboard below reflects the council's collective judgment."
+                )
+                try:
+                    await ws.send_json({
+                        "type": "chairman",
+                        "agent": "chairman",
+                        "agent_name": chairman["name"],
+                        "agent_color": chairman["color"],
+                        "agent_role": chairman["role"],
+                        "agent_model": chairman.get("model", "").split("/")[-1].split(":")[0],
+                        "text": fallback_text,
+                        "audio": None,
+                        "audio_format": "mp3",
+                        "proposal_records": [
+                            {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
+                            for r in proposal_records
+                        ],
+                        "scoreboard": scored_proposals,
+                    })
+                except Exception:
+                    pass
 
         await ws.send_json({
             "type": "complete",
@@ -1386,12 +1457,21 @@ async def websocket_endpoint(ws: WebSocket):
         })
 
     except WebSocketDisconnect:
-        pass
+        _session_stopped = True
     except Exception as e:
         try:
-            await ws.send_json({"type": "error", "message": str(e)})
+            await ws.send_json({"type": "error", "message": _friendly_error(e)})
         except Exception:
             pass
+    finally:
+        # ── Clean up background tasks ──
+        _session_stopped = True
+        for task in list(_background_tasks):
+            if not task.done():
+                task.cancel()
+        if _background_tasks:
+            await asyncio.gather(*_background_tasks, return_exceptions=True)
+        _background_tasks.clear()
 
 if __name__ == "__main__":
     from rich.console import Console
