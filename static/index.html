@@ -312,6 +312,42 @@ body::after {
 }
 
 @media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
+
+/* ── Error toast ── */
+.error-toast {
+  position: fixed; top: 0; left: 50%; transform: translateX(-50%);
+  z-index: 10000; max-width: 600px; width: 90%;
+  padding: 10px 16px; background: rgba(20, 8, 8, 0.95);
+  border: 1px solid rgba(248,113,113,0.4); border-top: none;
+  display: flex; align-items: flex-start; gap: 10px;
+  animation: toastSlideIn 0.3s ease;
+  backdrop-filter: blur(8px);
+}
+.error-toast-icon { color: var(--red); font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.error-toast-body { flex: 1; min-width: 0; }
+.error-toast-msg { color: var(--text); font-size: 11px; line-height: 1.5; }
+.error-toast-dismiss {
+  background: none; border: 1px solid rgba(248,113,113,0.2); color: var(--text-dim);
+  font-size: 9px; padding: 2px 8px; cursor: pointer; font-family: var(--mono);
+  letter-spacing: 0.5px; flex-shrink: 0; margin-top: 1px;
+}
+.error-toast-dismiss:hover { border-color: var(--red); color: var(--red); }
+@keyframes toastSlideIn { from { transform: translateX(-50%) translateY(-100%); opacity: 0; } to { transform: translateX(-50%) translateY(0); opacity: 1; } }
+@keyframes toastSlideOut { from { transform: translateX(-50%) translateY(0); opacity: 1; } to { transform: translateX(-50%) translateY(-100%); opacity: 0; } }
+
+/* ── Progress / ETA ── */
+.progress-info {
+  display: flex; align-items: center; gap: 6px;
+}
+.progress-track {
+  width: 48px; height: 3px; background: var(--border); position: relative; flex-shrink: 0;
+}
+.progress-fill {
+  height: 100%; background: var(--orange); transition: width 0.4s ease; position: absolute; left: 0; top: 0;
+}
+.progress-eta {
+  font-size: 9px; color: var(--text-dim); letter-spacing: 0.5px; white-space: nowrap;
+}
 </style>
 </head>
 <body>
@@ -342,11 +378,83 @@ let state = {
   thinking:null, lastProtocol:null, showJson:false,
   audioData:{}, stopped:false, topic:'', agentRoster:null,
   speakingAgent:null, // which agent is currently speaking (for waveform)
+  // P2: ETA tracking
+  turnStartTime:null,     // timestamp when current turn started
+  turnDurations:[],       // array of past turn durations in ms
+  sessionStartTime:null,  // when the session began
+  // P2: Error toast
+  errorToast:null,        // {msg, timer} or null
 };
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 let currentSource = null;
 let analyserNode = null;
+let errorToastTimer = null;
+
+// ── Error toast ──────────────────────────────────────────────
+function showErrorToast(msg) {
+  // Clear any existing toast timer
+  if (errorToastTimer) clearTimeout(errorToastTimer);
+  state.errorToast = msg;
+  renderErrorToast();
+  // Auto-dismiss after 12 seconds
+  errorToastTimer = setTimeout(() => dismissErrorToast(), 12000);
+}
+
+function dismissErrorToast(animate) {
+  if (errorToastTimer) { clearTimeout(errorToastTimer); errorToastTimer = null; }
+  const el = document.getElementById('error-toast');
+  if (el && animate !== false) {
+    el.style.animation = 'toastSlideOut 0.25s ease forwards';
+    setTimeout(() => { state.errorToast = null; renderErrorToast(); }, 250);
+  } else {
+    state.errorToast = null;
+    renderErrorToast();
+  }
+}
+
+function renderErrorToast() {
+  let container = document.getElementById('error-toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'error-toast-container';
+    document.body.appendChild(container);
+  }
+  if (!state.errorToast) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <div class="error-toast" id="error-toast">
+      <span class="error-toast-icon">⚠</span>
+      <div class="error-toast-body">
+        <div class="error-toast-msg">${esc(state.errorToast)}</div>
+      </div>
+      <button class="error-toast-dismiss" onclick="dismissErrorToast()">dismiss</button>
+    </div>`;
+}
+
+// ── ETA calculation ─────────────────────────────────────────
+function formatEta(ms) {
+  if (!ms || ms < 0) return '';
+  const secs = Math.ceil(ms / 1000);
+  if (secs < 60) return `~${secs}s left`;
+  const mins = Math.floor(secs / 60);
+  const remSecs = secs % 60;
+  return `~${mins}m${remSecs > 0 ? ` ${remSecs}s` : ''} left`;
+}
+
+function getEtaString() {
+  if (state.turnDurations.length < 1) return '';
+  // Use a moving average of the last 4 turns for stability
+  const recent = state.turnDurations.slice(-4);
+  const avgMs = recent.reduce((a, b) => a + b, 0) / recent.length;
+  const turnsLeft = state.totalTurns - state.turn;
+  if (turnsLeft <= 0) return '';
+  // Add ~15s for chairman synthesis at the end
+  const etaMs = (turnsLeft * avgMs) + 15000;
+  return formatEta(etaMs);
+}
 
 // ── Message display buffer ──────────────────────────────────
 // Messages from the server are buffered here. They are displayed
@@ -572,6 +680,14 @@ function connect(topic, turns) {
     const data = JSON.parse(e.data);
 
     if (data.type === 'thinking') {
+      // Track turn timing for ETA calculation
+      if (state.turnStartTime && state.turn > 0) {
+        // Previous turn just ended — record its duration
+        const duration = Date.now() - state.turnStartTime;
+        if (duration > 500) state.turnDurations.push(duration); // ignore sub-500ms noise
+      }
+      state.turnStartTime = Date.now();
+
       // Only update thinking if the display queue is empty (i.e. not mid-playback).
       // If we're still playing a previous message, the thinking indicator will
       // show after the queue drains naturally.
@@ -621,7 +737,8 @@ function connect(topic, turns) {
 
     if (data.type === 'error') {
       state.thinking = null;
-      state.messages.push({type:'error', text:data.message, phase:state.phase, turn:state.turn});
+      // Show as a dismissable toast instead of an inline message
+      showErrorToast(data.message);
       render(); scrollChat();
     }
   };
@@ -700,6 +817,11 @@ function startConversation() {
   state.audioData = {};
   state.lastProtocol = null;
   state.agentRoster = null;
+  // P2: Reset ETA tracking
+  state.turnStartTime = null;
+  state.turnDurations = [];
+  state.sessionStartTime = Date.now();
+  state.errorToast = null;
   connect(topic, turns);
 }
 
@@ -729,6 +851,7 @@ function stopConversation() {
 }
 
 function resetApp() {
+  dismissErrorToast(false);
   state = {
     screen:'setup', ws:null, config:state.config,
     messages:[], proposals:[], proposalRecords:[], chairmanVerdict:null,
@@ -736,6 +859,8 @@ function resetApp() {
     consensus:0, thinking:null, lastProtocol:null, showJson:false,
     audioData:{}, stopped:false, topic:'', agentRoster:null,
     speakingAgent:null,
+    turnStartTime:null, turnDurations:[], sessionStartTime:null,
+    errorToast:null,
   };
   displayQueue = [];
   isProcessingQueue = false;
@@ -918,7 +1043,13 @@ function renderMain(app) {
       <div class="phase-bar">${renderPhaseBar()}</div>
       <div class="controls">
         ${ttsLabel ? `<span class="tts-badge" id="tts-badge">${ttsLabel}</span>` : ''}
-        <span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns).padStart(2,'0')}</span>
+        ${state.screen === 'running' ? `
+          <div class="progress-info">
+            <span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns).padStart(2,'0')}</span>
+            <div class="progress-track"><div class="progress-fill" style="width:${Math.round((state.turn / state.totalTurns) * 100)}%"></div></div>
+            ${getEtaString() ? `<span class="progress-eta">${getEtaString()}</span>` : ''}
+          </div>
+        ` : `<span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns).padStart(2,'0')}</span>`}
         ${state.screen === 'complete'
           ? `<button class="btn" onclick="exportTranscript()">[ export ]</button>
              <button class="btn" onclick="resetApp()">[ new ]</button>`
