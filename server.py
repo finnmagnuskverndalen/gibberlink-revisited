@@ -871,6 +871,53 @@ _ROLE_WEIGHTS = {
 }
 
 
+def build_scoreboard(proposal_records: list[dict], all_agents: list[dict]) -> list[dict]:
+    """Score and rank proposals based on weighted votes.
+
+    Each voter's agree/amend/disagree is weighted by their role.
+    Chairman disagree acts as a veto (halves the score).
+    Returns a list sorted by score descending.
+    """
+    scored = []
+    for rec in proposal_records:
+        score = 0.0
+        vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
+        chairman_vote = None
+        for voter_id, v in rec["votes"].items():
+            vote_counts[v] = vote_counts.get(v, 0) + 1
+            # Look up voter role for weighting
+            voter_role = ""
+            for a in all_agents:
+                if a["id"] == voter_id:
+                    voter_role = a.get("role", "")
+                    break
+            weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
+            if v == "agree":
+                score += 2 * weight
+            elif v == "amend":
+                score += 1 * weight
+            if voter_id == "chairman":
+                chairman_vote = v
+
+        chairman_vetoed = chairman_vote == "disagree"
+        if chairman_vetoed:
+            score *= 0.5
+
+        scored.append({
+            "text": rec["text"],
+            "author": rec["author"],
+            "author_id": rec.get("author_id", ""),
+            "turn": rec["turn"],
+            "votes": rec["votes"],
+            "reasons": rec.get("reasons", {}),
+            "vote_counts": vote_counts,
+            "score": round(score, 1),
+            "chairman_vetoed": chairman_vetoed,
+        })
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored
+
+
 async def collect_votes(agents, chairman, proposal_text, author_id, messages, problem, call_llm_fn, client: httpx.AsyncClient | None = None):
     """Ask each agent (+ chairman) to vote on a proposal. Returns dict of votes.
     
@@ -1432,42 +1479,7 @@ async def websocket_endpoint(ws: WebSocket):
                 )
 
                 # ── Build ranked proposal scoreboard ──
-                scored_proposals = []
-                for rec in proposal_records:
-                    score = 0.0
-                    vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                    chairman_vote = None
-                    for voter_id, v in rec["votes"].items():
-                        vote_counts[v] = vote_counts.get(v, 0) + 1
-                        voter_role = ""
-                        for a in all_agents:
-                            if a["id"] == voter_id:
-                                voter_role = a.get("role", "")
-                                break
-                        weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
-                        if v == "agree":
-                            score += 2 * weight
-                        elif v == "amend":
-                            score += 1 * weight
-                        if voter_id == "chairman":
-                            chairman_vote = v
-
-                    chairman_vetoed = chairman_vote == "disagree"
-                    if chairman_vetoed:
-                        score *= 0.5
-
-                    scored_proposals.append({
-                        "text": rec["text"],
-                        "author": rec["author"],
-                        "author_id": rec.get("author_id", ""),
-                        "turn": rec["turn"],
-                        "votes": rec["votes"],
-                        "reasons": rec.get("reasons", {}),
-                        "vote_counts": vote_counts,
-                        "score": round(score, 1),
-                        "chairman_vetoed": chairman_vetoed,
-                    })
-                scored_proposals.sort(key=lambda x: x["score"], reverse=True)
+                scored_proposals = build_scoreboard(proposal_records, all_agents)
 
                 # Generate TTS for chairman
                 chairman_audio_b64 = None
@@ -1510,32 +1522,7 @@ async def websocket_endpoint(ws: WebSocket):
             except Exception as e:
                 print(f"  [Chairman] Synthesis failed: {e}")
                 # Build scoreboard even on LLM failure so the client gets the vote data
-                scored_proposals = []
-                for rec in proposal_records:
-                    score = 0.0
-                    vote_counts = {"agree": 0, "disagree": 0, "amend": 0}
-                    chairman_vote = None
-                    for voter_id, v in rec["votes"].items():
-                        vote_counts[v] = vote_counts.get(v, 0) + 1
-                        voter_role = ""
-                        for a in all_agents:
-                            if a["id"] == voter_id:
-                                voter_role = a.get("role", "")
-                                break
-                        weight = _ROLE_WEIGHTS.get(voter_role, 1.0)
-                        if v == "agree": score += 2 * weight
-                        elif v == "amend": score += 1 * weight
-                        if voter_id == "chairman": chairman_vote = v
-                    chairman_vetoed = chairman_vote == "disagree"
-                    if chairman_vetoed: score *= 0.5
-                    scored_proposals.append({
-                        "text": rec["text"], "author": rec["author"],
-                        "author_id": rec.get("author_id", ""), "turn": rec["turn"],
-                        "votes": rec["votes"], "reasons": rec.get("reasons", {}),
-                        "vote_counts": vote_counts, "score": round(score, 1),
-                        "chairman_vetoed": chairman_vetoed,
-                    })
-                scored_proposals.sort(key=lambda x: x["score"], reverse=True)
+                scored_proposals = build_scoreboard(proposal_records, all_agents)
 
                 fallback_text = (
                     f"The council deliberated over {len(messages)} rounds on this problem. "
