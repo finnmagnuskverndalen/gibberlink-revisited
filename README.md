@@ -20,11 +20,11 @@
 Inspired by the viral [GibberLink](https://github.com/PennyroyalTea/gibberlink) demo — but instead of two agents switching to beeps, this puts **four distinct AI personalities** into a structured council that debates, proposes, votes, and converges on real solutions.
 
 <p align="center">
-  <img src="screenshots/chat.png" alt="Live chat view — agents debating in real time" width="900">
+  <img src="screenshots/chat.png" alt="Live chat view — agents debating in real time" width="700">
 </p>
 
 <p align="center">
-  <img src="screenshots/council.png" alt="Council overview — agents deliberating with proposals and voting" width="900">
+  <img src="screenshots/council.png" alt="Council overview — agents deliberating with proposals and voting" width="700">
 </p>
 
 ## How it works
