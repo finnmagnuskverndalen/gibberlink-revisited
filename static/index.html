@@ -311,7 +311,57 @@ body::after {
   font-size: 9px; color: var(--text-dim); margin-left: auto; flex-shrink: 0;
 }
 
-@media (max-width: 800px) { .side { display: none; } .phase-label { display: none; } }
+/* ── Mobile: side panel as overlay toggle (Fix 8) ── */
+@media (max-width: 800px) {
+  .side {
+    display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 300px;
+    z-index: 1000; box-shadow: -4px 0 24px rgba(0,0,0,0.5);
+  }
+  .side.open { display: flex; }
+  .phase-label { display: none; }
+  .setup-card { padding: 24px 18px; max-width: 100%; }
+  .mobile-panel-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border: 1px solid var(--border2);
+    background: var(--bg3); color: var(--text-mid); font-size: 14px;
+    cursor: pointer; font-family: var(--mono);
+  }
+  .mobile-panel-toggle:hover { border-color: var(--text-dim); color: var(--text); }
+  .mobile-overlay {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 999;
+  }
+  .mobile-overlay.open { display: block; }
+}
+@media (min-width: 801px) {
+  .mobile-panel-toggle { display: none; }
+  .mobile-overlay { display: none; }
+}
+
+/* ── Connection lost banner (Fix 9) ── */
+.connection-banner {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10001;
+  padding: 10px 16px; background: rgba(20, 8, 8, 0.95);
+  border-top: 1px solid rgba(248,113,113,0.4);
+  display: flex; align-items: center; justify-content: center; gap: 12px;
+  animation: toastSlideUp 0.3s ease;
+  backdrop-filter: blur(8px);
+}
+.connection-banner-msg { color: var(--text); font-size: 11px; }
+.connection-banner-btn {
+  background: none; border: 1px solid var(--orange); color: var(--orange);
+  font-size: 10px; padding: 4px 12px; cursor: pointer; font-family: var(--mono);
+  letter-spacing: 0.5px;
+}
+.connection-banner-btn:hover { background: var(--orange); color: var(--bg); }
+@keyframes toastSlideUp { from { transform: translateY(100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+/* ── Pause button (Fix 11) ── */
+.btn-pause { border-color: rgba(251,191,36,0.3); color: var(--yellow); }
+.btn-pause:hover { border-color: var(--yellow); background: rgba(251,191,36,0.05); }
+
+/* ── Audio fail indicator (Fix 10) ── */
+.msg-audio-fail { font-size: 9px; color: var(--text-dim); margin-top: 4px; font-style: italic; }
 
 /* ── Error toast ── */
 .error-toast {
@@ -384,6 +434,14 @@ let state = {
   sessionStartTime:null,  // when the session began
   // P2: Error toast
   errorToast:null,        // {msg, timer} or null
+  // Fix 8: Mobile panel
+  mobilePanelOpen:false,
+  // Fix 9: Connection lost
+  connectionLost:false,
+  // Fix 10: Audio failures per turn
+  audioFailed:{},         // {turn: true} for turns where audio decode failed
+  // Fix 11: Pause
+  paused:false,
 };
 
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -476,6 +534,13 @@ async function processDisplayQueue() {
 
   while (displayQueue.length > 0) {
     if (state.stopped) { displayQueue = []; break; }
+
+    // Fix 11: Wait while paused
+    while (state.paused && !state.stopped) {
+      await new Promise(r => setTimeout(r, 200));
+    }
+    if (state.stopped) { displayQueue = []; break; }
+
     const data = displayQueue.shift();
 
     if (data._type === 'message') {
@@ -497,7 +562,12 @@ async function processDisplayQueue() {
           state.speakingAgent = data.agent;
           updateWaveforms();
           await playAudioB64(data.audio, data.audio_format);
-        } catch(e) { console.warn('Audio error:', e); }
+        } catch(e) {
+          // Fix 10: Track audio failure for this turn
+          console.warn('Audio error:', e);
+          state.audioFailed[data.turn] = true;
+          render();
+        }
         state.speakingAgent = null;
         updateWaveforms();
       }
@@ -513,7 +583,11 @@ async function processDisplayQueue() {
           state.speakingAgent = 'chairman';
           updateWaveforms();
           await playAudioB64(data.audio, data.audio_format);
-        } catch(e) { console.warn('Audio error:', e); }
+        } catch(e) {
+          console.warn('Audio error:', e);
+          state.audioFailed['chairman'] = true;
+          render();
+        }
         state.speakingAgent = null;
         updateWaveforms();
       }
@@ -663,12 +737,18 @@ function pollTtsReady() {
 }
 
 // ── WebSocket ──
+let _reconnectAttempts = 0;
+const MAX_RECONNECT = 3;
+
 function connect(topic, turns) {
   state.stopped = false;
+  state.connectionLost = false;
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${protocol}//${location.host}/ws`);
 
   ws.onopen = () => {
+    _reconnectAttempts = 0;
+    state.connectionLost = false;
     ws.send(JSON.stringify({topic, turns}));
     state.screen = 'running';
     render();
@@ -743,8 +823,49 @@ function connect(topic, turns) {
     }
   };
 
-  ws.onclose = () => { if (state.screen === 'running') { state.screen = 'complete'; render(); } };
+  ws.onclose = (ev) => {
+    // Fix 9: Detect unexpected disconnection vs normal completion
+    if (state.screen === 'running' && !state.stopped) {
+      // Unexpected disconnect — show connection lost banner
+      state.connectionLost = true;
+      state.thinking = null;
+      renderConnectionBanner();
+    } else if (state.screen === 'running') {
+      state.screen = 'complete';
+      render();
+    }
+  };
+
+  ws.onerror = () => {
+    // onerror always fires before onclose — let onclose handle the UI
+  };
+
   state.ws = ws;
+}
+
+function renderConnectionBanner() {
+  let container = document.getElementById('connection-banner-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'connection-banner-container';
+    document.body.appendChild(container);
+  }
+  if (!state.connectionLost) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = `
+    <div class="connection-banner">
+      <span class="connection-banner-msg">⚠ Connection lost — the session cannot continue.</span>
+      <button class="connection-banner-btn" onclick="dismissConnectionAndReset()">[ new session ]</button>
+    </div>`;
+}
+
+function dismissConnectionAndReset() {
+  state.connectionLost = false;
+  state.screen = 'complete';
+  renderConnectionBanner();
+  render();
 }
 
 function scrollChat() {
@@ -827,6 +948,7 @@ function startConversation() {
 
 function stopConversation() {
   state.stopped = true;
+  state.paused = false;
   state.speakingAgent = null;
   displayQueue = [];
   isProcessingQueue = false;
@@ -850,8 +972,38 @@ function stopConversation() {
   render();
 }
 
+// Fix 11: Pause / resume
+function togglePause() {
+  state.paused = !state.paused;
+  if (state.paused) {
+    // Stop any currently playing audio
+    try { currentSource?.stop(); } catch(e) {}
+    state.speakingAgent = null;
+    updateWaveforms();
+  }
+  render();
+}
+
+// Fix 8: Mobile panel toggle
+function toggleMobilePanel() {
+  state.mobilePanelOpen = !state.mobilePanelOpen;
+  const side = document.querySelector('.side');
+  const overlay = document.querySelector('.mobile-overlay');
+  if (side) side.classList.toggle('open', state.mobilePanelOpen);
+  if (overlay) overlay.classList.toggle('open', state.mobilePanelOpen);
+}
+function closeMobilePanel() {
+  state.mobilePanelOpen = false;
+  const side = document.querySelector('.side');
+  const overlay = document.querySelector('.mobile-overlay');
+  if (side) side.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+}
+
 function resetApp() {
   dismissErrorToast(false);
+  state.connectionLost = false;
+  renderConnectionBanner();
   state = {
     screen:'setup', ws:null, config:state.config,
     messages:[], proposals:[], proposalRecords:[], chairmanVerdict:null,
@@ -861,12 +1013,14 @@ function resetApp() {
     speakingAgent:null,
     turnStartTime:null, turnDurations:[], sessionStartTime:null,
     errorToast:null,
+    mobilePanelOpen:false, connectionLost:false, audioFailed:{}, paused:false,
   };
   displayQueue = [];
   isProcessingQueue = false;
   render();
 }
 
+// Fix 12: Export as JSON or Markdown
 function exportTranscript() {
   const data = {
     topic: state.topic, turns: state.messages.length,
@@ -883,6 +1037,55 @@ function exportTranscript() {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = `gibberlink-revisited-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportMarkdown() {
+  const msgs = state.messages.filter(m => m.type !== 'error');
+  let md = `# GibberLink Revisited — Council Transcript\n\n`;
+  md += `**Problem:** ${state.topic}\n\n`;
+  md += `**Rounds:** ${msgs.length} · **Consensus:** ${state.consensus}%\n\n`;
+  md += `---\n\n`;
+
+  let lastPhase = '';
+  for (const m of msgs) {
+    if (m.phase !== lastPhase) {
+      const label = {problem:'Problem Definition',debate:'Open Debate',converge:'Convergence',solution:'Solution'}[m.phase] || m.phase;
+      md += `## ${label}\n\n`;
+      lastPhase = m.phase;
+    }
+    md += `**${m.agent_name || 'Agent'}** _(${m.agent_role || ''})_: ${m.text}\n\n`;
+  }
+
+  if (state.proposalRecords.length > 0) {
+    md += `---\n\n## Proposals\n\n`;
+    for (const p of state.proposalRecords) {
+      const vc = {};
+      if (p.votes) {
+        for (const v of Object.values(p.votes)) vc[v] = (vc[v]||0) + 1;
+      }
+      md += `- **${p.author}** (round ${(p.turn||0)+1}): ${p.text}`;
+      const parts = [];
+      if (vc.agree) parts.push(`${vc.agree} agree`);
+      if (vc.amend) parts.push(`${vc.amend} amend`);
+      if (vc.disagree) parts.push(`${vc.disagree} disagree`);
+      if (parts.length) md += ` — _${parts.join(', ')}_`;
+      md += `\n`;
+    }
+    md += `\n`;
+  }
+
+  if (state.chairmanVerdict) {
+    md += `---\n\n## Chairman's Verdict\n\n${state.chairmanVerdict.text}\n`;
+  }
+
+  md += `\n---\n_Exported ${new Date().toISOString()}_\n`;
+
+  const blob = new Blob([md], {type:'text/markdown'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `gibberlink-revisited-${Date.now()}.md`;
   a.click();
   URL.revokeObjectURL(a.href);
 }
@@ -947,6 +1150,7 @@ function renderMsg(m, idx) {
     <div class="msg-text">${esc(m.text)}</div>
     ${hasProposals ? m.new_proposals.map(p => `<div class="proposal-inline">${esc(p)}</div>`).join('') : ''}
     ${ad ? `<button class="msg-audio-btn" onclick="replayAudio(${m.turn})">[ replay ]</button>` : ''}
+    ${state.audioFailed[m.turn] ? '<div class="msg-audio-fail">⚠ audio unavailable</div>' : ''}
   </div>`;
 }
 
@@ -1051,9 +1255,12 @@ function renderMain(app) {
           </div>
         ` : `<span class="turn-badge">${String(state.turn).padStart(2,'0')}/${String(state.totalTurns).padStart(2,'0')}</span>`}
         ${state.screen === 'complete'
-          ? `<button class="btn" onclick="exportTranscript()">[ export ]</button>
+          ? `<button class="btn" onclick="exportTranscript()">[ json ]</button>
+             <button class="btn" onclick="exportMarkdown()">[ markdown ]</button>
              <button class="btn" onclick="resetApp()">[ new ]</button>`
-          : `<button class="btn btn-danger" onclick="stopConversation()">[ stop ]</button>`}
+          : `${state.screen === 'running' ? `<button class="btn btn-pause" onclick="togglePause()">${state.paused ? '[ resume ]' : '[ pause ]'}</button>` : ''}
+             <button class="btn btn-danger" onclick="stopConversation()">[ stop ]</button>`}
+        <button class="mobile-panel-toggle" onclick="toggleMobilePanel()">☰</button>
       </div>
     </div>
     <div class="main">
@@ -1084,7 +1291,8 @@ function renderMain(app) {
           <span class="consensus-pct">${state.consensus}%</span>
         </div>
       </div>
-      <div class="side">
+      <div class="mobile-overlay${state.mobilePanelOpen ? ' open' : ''}" onclick="closeMobilePanel()"></div>
+      <div class="side${state.mobilePanelOpen ? ' open' : ''}">
         <div class="side-section">
           <div class="side-title">agents</div>
           ${roster.map((a) => {
