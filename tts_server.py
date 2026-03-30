@@ -14,22 +14,8 @@ import os
 import sys
 
 # ── Venv bootstrap ───────────────────────────────────────────
-# Re-exec inside .venv if running under system Python.
-def _reexec_in_venv():
-    _here = os.path.dirname(os.path.abspath(__file__))
-    _venv_py = os.path.join(
-        _here, ".venv",
-        "Scripts" if sys.platform == "win32" else "bin",
-        "python.exe" if sys.platform == "win32" else "python",
-    )
-    in_venv = (
-        hasattr(sys, "real_prefix")
-        or (hasattr(sys, "base_prefix") and sys.base_prefix != sys.prefix)
-    )
-    if not in_venv and os.path.exists(_venv_py) and sys.executable != _venv_py:
-        os.execv(_venv_py, [_venv_py] + sys.argv)
-
-_reexec_in_venv()
+from bootstrap import reexec_in_venv, free_port
+reexec_in_venv()
 
 import argparse
 import io
@@ -195,63 +181,8 @@ async def voices():
 
 
 # ── Main ─────────────────────────────────────────────────────
-def _free_port(port: int):
-    """Try to free a port by gracefully stopping any process bound to it."""
-    import signal
-    try:
-        out = subprocess.check_output(
-            ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
-        ).strip()
-        if not out:
-            return
-        import time
-        pids = []
-        for pid_str in out.splitlines():
-            pid = int(pid_str)
-            if pid == os.getpid():
-                continue
-            pids.append(pid)
-
-        if not pids:
-            return
-
-        # Phase 1: SIGTERM (graceful)
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGTERM)
-                print(f"  ⚠ Sent SIGTERM to process on port {port} (PID {pid})")
-            except ProcessLookupError:
-                pass
-
-        # Wait up to 3 seconds for graceful shutdown
-        deadline = time.monotonic() + 3.0
-        remaining = list(pids)
-        while remaining and time.monotonic() < deadline:
-            time.sleep(0.2)
-            still_alive = []
-            for pid in remaining:
-                try:
-                    os.kill(pid, 0)
-                    still_alive.append(pid)
-                except ProcessLookupError:
-                    pass
-            remaining = still_alive
-
-        # Phase 2: SIGKILL anything that didn't exit gracefully
-        for pid in remaining:
-            try:
-                os.kill(pid, signal.SIGKILL)
-                print(f"  ⚠ Force-killed stubborn process on port {port} (PID {pid})")
-            except ProcessLookupError:
-                pass
-
-        if pids:
-            time.sleep(0.3)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-
 if __name__ == "__main__":
-    _free_port(PORT)
+    free_port(PORT)
     print(f"  TTS server ({ENGINE}) on http://localhost:{PORT}")
     print(f"  Test: curl 'http://localhost:{PORT}/synthesize?text=Hello&voice={VOICES[0]}' --output test.wav\n")
     uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="warning")
