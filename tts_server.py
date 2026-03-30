@@ -196,26 +196,57 @@ async def voices():
 
 # ── Main ─────────────────────────────────────────────────────
 def _free_port(port: int):
-    """Kill any stale process already bound to this port."""
+    """Try to free a port by gracefully stopping any process bound to it."""
     import signal
     try:
         out = subprocess.check_output(
             ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
         ).strip()
+        if not out:
+            return
         import time
-        killed = False
+        pids = []
         for pid_str in out.splitlines():
             pid = int(pid_str)
             if pid == os.getpid():
                 continue
+            pids.append(pid)
+
+        if not pids:
+            return
+
+        # Phase 1: SIGTERM (graceful)
+        for pid in pids:
             try:
-                os.kill(pid, signal.SIGKILL)
-                print(f"  ⚠ Killed stale process on port {port} (PID {pid})")
-                killed = True
+                os.kill(pid, signal.SIGTERM)
+                print(f"  ⚠ Sent SIGTERM to process on port {port} (PID {pid})")
             except ProcessLookupError:
                 pass
-        if killed:
-            time.sleep(0.5)  # give OS time to release the socket
+
+        # Wait up to 3 seconds for graceful shutdown
+        deadline = time.monotonic() + 3.0
+        remaining = list(pids)
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.2)
+            still_alive = []
+            for pid in remaining:
+                try:
+                    os.kill(pid, 0)
+                    still_alive.append(pid)
+                except ProcessLookupError:
+                    pass
+            remaining = still_alive
+
+        # Phase 2: SIGKILL anything that didn't exit gracefully
+        for pid in remaining:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                print(f"  ⚠ Force-killed stubborn process on port {port} (PID {pid})")
+            except ProcessLookupError:
+                pass
+
+        if pids:
+            time.sleep(0.3)
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 

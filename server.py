@@ -30,26 +30,62 @@ def _reexec_in_venv():
 _reexec_in_venv()
 
 def _free_port(port: int):
-    """Kill any process already bound to the given port so we can start cleanly."""
+    """Try to free a port by gracefully stopping any process bound to it.
+
+    Strategy: SIGTERM first (gives the process a chance to clean up),
+    then SIGKILL after a timeout if it's still alive. This avoids
+    accidentally force-killing unrelated services.
+    """
     import signal
     try:
         out = subprocess.check_output(
             ["lsof", "-ti", f"tcp:{port}"], stderr=subprocess.DEVNULL, text=True
         ).strip()
+        if not out:
+            return
         import time
-        killed = False
+        pids = []
         for pid_str in out.splitlines():
             pid = int(pid_str)
             if pid == os.getpid():
                 continue
+            pids.append(pid)
+
+        if not pids:
+            return
+
+        # Phase 1: SIGTERM (graceful)
+        for pid in pids:
             try:
-                os.kill(pid, signal.SIGKILL)
-                print(f"  ⚠ Killed stale process on port {port} (PID {pid})")
-                killed = True
+                os.kill(pid, signal.SIGTERM)
+                print(f"  ⚠ Sent SIGTERM to process on port {port} (PID {pid})")
             except ProcessLookupError:
                 pass
-        if killed:
-            time.sleep(0.5)
+
+        # Wait up to 3 seconds for graceful shutdown
+        deadline = time.monotonic() + 3.0
+        remaining = list(pids)
+        while remaining and time.monotonic() < deadline:
+            time.sleep(0.2)
+            still_alive = []
+            for pid in remaining:
+                try:
+                    os.kill(pid, 0)  # check if alive (signal 0 = no signal)
+                    still_alive.append(pid)
+                except ProcessLookupError:
+                    pass
+            remaining = still_alive
+
+        # Phase 2: SIGKILL anything that didn't exit gracefully
+        for pid in remaining:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                print(f"  ⚠ Force-killed stubborn process on port {port} (PID {pid})")
+            except ProcessLookupError:
+                pass
+
+        if pids:
+            time.sleep(0.3)  # give OS time to release the socket
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 
@@ -136,18 +172,35 @@ def _resolve_tts_provider():
 EFFECTIVE_TTS = _resolve_tts_provider()
 TTS_ENABLED   = EFFECTIVE_TTS != "none"
 
+import threading as _threading
+
 # ── HTTP client ──────────────────────────────────────────────
+# Per-session clients are created in the WebSocket handler to avoid
+# one slow session starving another's connection pool.  A small shared
+# client is kept only for internal health-check endpoints (TTS server).
 
-_http_client: httpx.AsyncClient | None = None
+_health_client: httpx.AsyncClient | None = None
 
-async def get_client() -> httpx.AsyncClient:
-    global _http_client
-    if _http_client is None or _http_client.is_closed:
-        _http_client = httpx.AsyncClient(
-            timeout=60,
-            limits=httpx.Limits(max_connections=20),
+async def _get_health_client() -> httpx.AsyncClient:
+    """Shared client for lightweight internal health checks only."""
+    global _health_client
+    if _health_client is None or _health_client.is_closed:
+        _health_client = httpx.AsyncClient(
+            timeout=5,
+            limits=httpx.Limits(max_connections=4),
         )
-    return _http_client
+    return _health_client
+
+def _make_session_client() -> httpx.AsyncClient:
+    """Create a fresh httpx client for a single WebSocket session.
+
+    Each session gets its own connection pool so concurrent sessions
+    don't compete for connections or block each other on slow models.
+    """
+    return httpx.AsyncClient(
+        timeout=60,
+        limits=httpx.Limits(max_connections=20),
+    )
 
 # ── TTS subprocess management ────────────────────────────────
 
@@ -244,23 +297,21 @@ def _start_tts_server():
     print("  [TTS] TTS server did not respond in time — text-only mode")
     return False
 
-_tts_ready = False
+_tts_ready_event = _threading.Event()  # thread-safe flag for TTS availability
 
 @asynccontextmanager
 async def lifespan(app):
-    global _tts_ready
     if EFFECTIVE_TTS in ("kokoro", "qwen3"):
-        import threading
         def _bg_start():
-            global _tts_ready
             ok = _start_tts_server()
-            _tts_ready = ok
-            if not ok:
+            if ok:
+                _tts_ready_event.set()
+            else:
                 print("  [TTS] Running in text-only mode (TTS unavailable)")
-        threading.Thread(target=_bg_start, daemon=True).start()
+        _threading.Thread(target=_bg_start, daemon=True).start()
         print("  [TTS] Model loading in background — browser ready now, audio starts once model is loaded")
-    else:
-        _tts_ready = TTS_ENABLED
+    elif TTS_ENABLED:
+        _tts_ready_event.set()
     yield
     global _tts_proc
     if _tts_proc and _tts_proc.poll() is None:
@@ -270,9 +321,9 @@ async def lifespan(app):
             _tts_proc.wait(timeout=5)
         except Exception:
             _tts_proc.kill()
-    global _http_client
-    if _http_client and not _http_client.is_closed:
-        await _http_client.aclose()
+    global _health_client
+    if _health_client and not _health_client.is_closed:
+        await _health_client.aclose()
 
 # ── Council Phases ──────────────────────────────────────────
 
@@ -627,16 +678,57 @@ def _friendly_error(exc: Exception) -> str:
         clean = clean[:200] + "..."
     return f"LLM error: {clean}"
 
+# ── LLM error classification ─────────────────────────────────
+
+class LLMError(RuntimeError):
+    """Base class for LLM API errors."""
+    pass
+
+class LLMRetryableError(LLMError):
+    """Transient errors worth retrying: rate limits, timeouts, server errors."""
+    pass
+
+class LLMFatalError(LLMError):
+    """Permanent errors that will never succeed on retry: bad key, model not found, quota."""
+    pass
+
+def _classify_llm_error(status_code: int | None, error_body: str) -> LLMError:
+    """Inspect an HTTP status code and error body to return the right exception type."""
+    body_lower = error_body.lower() if error_body else ""
+
+    # ── Fatal (never retry) ──
+    if status_code == 401 or "unauthorized" in body_lower or "authentication" in body_lower:
+        return LLMFatalError(f"[{status_code}] {error_body}")
+    if status_code == 403 or "forbidden" in body_lower:
+        return LLMFatalError(f"[{status_code}] {error_body}")
+    if status_code == 404 or "not found" in body_lower or "model_not_found" in body_lower or "does not exist" in body_lower:
+        return LLMFatalError(f"[{status_code}] {error_body}")
+    if "quota" in body_lower or "billing" in body_lower or "insufficient" in body_lower or "payment" in body_lower:
+        return LLMFatalError(f"[{status_code}] {error_body}")
+    if "content_filter" in body_lower or "safety" in body_lower or "blocked" in body_lower or "moderation" in body_lower:
+        return LLMFatalError(f"[{status_code}] {error_body}")
+
+    # ── Retryable ──
+    if status_code == 429 or "rate_limit" in body_lower or "too many requests" in body_lower:
+        return LLMRetryableError(f"[{status_code}] {error_body}")
+    if status_code and status_code >= 500:
+        return LLMRetryableError(f"[{status_code}] {error_body}")
+    if "timeout" in body_lower or "timed out" in body_lower:
+        return LLMRetryableError(f"[{status_code}] {error_body}")
+
+    # Default: treat unknown errors as retryable (safer)
+    return LLMRetryableError(f"[{status_code}] {error_body}")
+
 # ── LLM Calls ──────────────────────────────────────────────
 
-async def call_llm(provider, api_key, model, messages, system_prompt, retries=3, max_tokens=200):
+async def call_llm(provider, api_key, model, messages, system_prompt, retries=3, max_tokens=200, client: httpx.AsyncClient | None = None):
     last_err = None
     for attempt in range(retries):
         try:
             if provider == "anthropic":
-                return await _call_anthropic(api_key, model, messages, system_prompt, max_tokens)
+                return await _call_anthropic(api_key, model, messages, system_prompt, max_tokens, client)
             elif provider == "gemini":
-                return await _call_gemini(api_key, model, messages, system_prompt, max_tokens)
+                return await _call_gemini(api_key, model, messages, system_prompt, max_tokens, client)
             else:
                 urls = {
                     "openrouter":   "https://openrouter.ai/api/v1/chat/completions",
@@ -644,8 +736,18 @@ async def call_llm(provider, api_key, model, messages, system_prompt, retries=3,
                     "grok":         "https://api.x.ai/v1/chat/completions",
                     "opencode_zen": "https://opencode.ai/zen/v1/chat/completions",
                 }
-                return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt, max_tokens)
+                return await _call_openai_compat(api_key, model, urls.get(provider, urls["openrouter"]), messages, system_prompt, max_tokens, client)
+        except LLMFatalError:
+            # Auth failures, model not found, quota — will never succeed on retry
+            raise
+        except (LLMRetryableError, httpx.TimeoutException, httpx.ConnectError) as e:
+            last_err = e
+            if attempt < retries - 1:
+                wait = 2 ** attempt
+                print(f"  [LLM] Attempt {attempt+1} failed (retryable): {e} — retrying in {wait}s")
+                await asyncio.sleep(wait)
         except Exception as e:
+            # Unknown errors — retry once, then give up
             last_err = e
             if attempt < retries - 1:
                 wait = 2 ** attempt
@@ -653,22 +755,25 @@ async def call_llm(provider, api_key, model, messages, system_prompt, retries=3,
                 await asyncio.sleep(wait)
     raise last_err
 
-async def _call_anthropic(api_key, model, messages, system_prompt, max_tokens=200):
-    client = await get_client()
+async def _call_anthropic(api_key, model, messages, system_prompt, max_tokens=200, client: httpx.AsyncClient | None = None):
+    if client is None:
+        client = _make_session_client()
     resp = await client.post(
         "https://api.anthropic.com/v1/messages",
         headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
         json={"model": model, "max_tokens": max_tokens, "system": system_prompt, "messages": messages},
     )
     data = resp.json()
-    if "error" in data: raise RuntimeError(f"Anthropic: {data['error']}")
+    if "error" in data:
+        raise _classify_llm_error(resp.status_code, f"Anthropic: {data['error']}")
     content = data["content"][0]["text"] if data.get("content") else None
     if content is None:
-        raise RuntimeError("Anthropic returned empty response")
+        raise LLMRetryableError("Anthropic returned empty response")
     return content
 
-async def _call_openai_compat(api_key, model, url, messages, system_prompt, max_tokens=200):
-    client = await get_client()
+async def _call_openai_compat(api_key, model, url, messages, system_prompt, max_tokens=200, client: httpx.AsyncClient | None = None):
+    if client is None:
+        client = _make_session_client()
     resp = await client.post(
         url,
         headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
@@ -676,14 +781,16 @@ async def _call_openai_compat(api_key, model, url, messages, system_prompt, max_
               "messages": [{"role": "system", "content": system_prompt}] + messages},
     )
     data = resp.json()
-    if "error" in data: raise RuntimeError(f"API error: {data['error']}")
+    if "error" in data:
+        raise _classify_llm_error(resp.status_code, f"API error: {data['error']}")
     content = data["choices"][0]["message"]["content"]
     if content is None:
-        raise RuntimeError("Model returned empty response (content is null)")
+        raise LLMRetryableError("Model returned empty response (content is null)")
     return content
 
-async def _call_gemini(api_key, model, messages, system_prompt, max_tokens=200):
-    client = await get_client()
+async def _call_gemini(api_key, model, messages, system_prompt, max_tokens=200, client: httpx.AsyncClient | None = None):
+    if client is None:
+        client = _make_session_client()
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
     contents = [{"role": "user" if m["role"] == "user" else "model", "parts": [{"text": m["content"]}]} for m in messages]
     resp = await client.post(url, headers={"content-type": "application/json"}, json={
@@ -691,13 +798,14 @@ async def _call_gemini(api_key, model, messages, system_prompt, max_tokens=200):
         "contents": contents, "generationConfig": {"maxOutputTokens": max_tokens},
     })
     data = resp.json()
-    if "error" in data: raise RuntimeError(f"Gemini: {data['error'].get('message', data['error'])}")
+    if "error" in data:
+        raise _classify_llm_error(resp.status_code, f"Gemini: {data['error'].get('message', data['error'])}")
     try:
         content = data["candidates"][0]["content"]["parts"][0]["text"]
     except (KeyError, IndexError):
-        raise RuntimeError("Gemini returned empty or malformed response")
+        raise LLMRetryableError("Gemini returned empty or malformed response")
     if content is None:
-        raise RuntimeError("Gemini returned null content")
+        raise LLMRetryableError("Gemini returned null content")
     return content
 
 # ── Proposal extraction ─────────────────────────────────────
@@ -763,7 +871,7 @@ _ROLE_WEIGHTS = {
 }
 
 
-async def collect_votes(agents, chairman, proposal_text, author_id, messages, problem, call_llm_fn):
+async def collect_votes(agents, chairman, proposal_text, author_id, messages, problem, call_llm_fn, client: httpx.AsyncClient | None = None):
     """Ask each agent (+ chairman) to vote on a proposal. Returns dict of votes.
     
     - Runs all votes in parallel via asyncio.gather
@@ -805,6 +913,7 @@ async def collect_votes(agents, chairman, proposal_text, author_id, messages, pr
                 agent["provider"], agent["api_key"], agent["model"],
                 [{"role": "user", "content": prompt}],
                 personality,
+                client=client,
             )
             if not response:
                 return "agree", ""
@@ -865,22 +974,21 @@ async def collect_votes(agents, chairman, proposal_text, author_id, messages, pr
 
 # ── TTS ─────────────────────────────────────────────────────
 
-async def generate_tts(text: str, voice_id: str, retries: int = 2) -> bytes | None:
+async def generate_tts(text: str, voice_id: str, client: httpx.AsyncClient, retries: int = 2) -> bytes | None:
     if not TTS_ENABLED:
         return None
     if EFFECTIVE_TTS in ("kokoro", "qwen3"):
-        if not _tts_ready:
+        if not _tts_ready_event.is_set():
             return None
         if _tts_proc and _tts_proc.poll() is not None:
             print(f"  [TTS] {EFFECTIVE_TTS} server stopped — skipping audio")
             return None
-        return await _tts_local(text, voice_id, retries)
+        return await _tts_local(text, voice_id, client, retries)
     if EFFECTIVE_TTS == "elevenlabs":
-        return await _tts_elevenlabs(text, voice_id, retries)
+        return await _tts_elevenlabs(text, voice_id, client, retries)
     return None
 
-async def _tts_elevenlabs(text: str, voice_id: str, retries: int = 2) -> bytes | None:
-    client = await get_client()
+async def _tts_elevenlabs(text: str, voice_id: str, client: httpx.AsyncClient, retries: int = 2) -> bytes | None:
     url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
     for attempt in range(retries + 1):
         try:
@@ -911,8 +1019,7 @@ async def _tts_elevenlabs(text: str, voice_id: str, retries: int = 2) -> bytes |
                 await asyncio.sleep(0.5)
     return None
 
-async def _tts_local(text: str, voice_id: str, retries: int = 2) -> bytes | None:
-    client = await get_client()
+async def _tts_local(text: str, voice_id: str, client: httpx.AsyncClient, retries: int = 2) -> bytes | None:
     base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
     url = f"{base_url.rstrip('/')}/synthesize"
     for attempt in range(retries + 1):
@@ -964,7 +1071,7 @@ async def tts_health():
         return JSONResponse({"status": "ok", "engine": EFFECTIVE_TTS})
     base_url = KOKORO_TTS_URL if EFFECTIVE_TTS == "kokoro" else QWEN3_TTS_URL
     try:
-        client = await get_client()
+        client = await _get_health_client()
         resp = await client.get(f"{base_url.rstrip('/')}/health", timeout=2)
         return JSONResponse(resp.json())
     except Exception:
@@ -975,6 +1082,8 @@ async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
     _session_stopped = False          # set True when client sends stop or disconnects
     _background_tasks: set[asyncio.Task] = set()   # track all spawned tasks for cleanup
+    _state_lock = asyncio.Lock()      # Fix 4: guards mutations to messages/proposals/proposal_records
+    _session_client = _make_session_client()  # Fix 1: per-session HTTP client
     try:
         start_msg   = await ws.receive_json()
 
@@ -1094,7 +1203,7 @@ async def websocket_endpoint(ws: WebSocket):
                 agent_msgs.append({"role": "user", "content": f'Problem: "{problem}". Begin your analysis.'})
 
             system_prompt = get_system_prompt(agent_name, others, phase, proposals, problem, personality)
-            response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt)
+            response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, system_prompt, client=_session_client)
 
             # ── Sanitize and validate response ──
             response = sanitize_response(response, agent_name, others)
@@ -1108,7 +1217,7 @@ async def websocket_endpoint(ws: WebSocket):
                     f"Just give your opinion in plain English. Nothing else."
                 )
                 try:
-                    response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, strict_prompt)
+                    response = await call_llm(agent["provider"], agent["api_key"], agent["model"], agent_msgs, strict_prompt, client=_session_client)
                     response = sanitize_response(response, agent_name, others)
                 except Exception:
                     pass
@@ -1126,19 +1235,19 @@ async def websocket_endpoint(ws: WebSocket):
 
             # Extract any proposals
             new_proposals = extract_proposals(response)
-            proposals.extend(new_proposals)
 
             # Collect votes on new proposals (parallel, with reasons)
             new_proposal_records = []
             for prop_text in new_proposals:
-                # Skip near-duplicate proposals
-                is_dup = any(_proposals_are_similar(prop_text, r["text"]) for r in proposal_records)
+                # Skip near-duplicate proposals (read under lock)
+                async with _state_lock:
+                    is_dup = any(_proposals_are_similar(prop_text, r["text"]) for r in proposal_records)
                 if is_dup:
                     print(f"  [DEDUP] Skipping duplicate proposal: {prop_text[:60]}...")
                     continue
 
                 votes, reasons = await collect_votes(
-                    agents, chairman, prop_text, agent_id, messages, problem, call_llm
+                    agents, chairman, prop_text, agent_id, messages, problem, call_llm, client=_session_client
                 )
                 record = {
                     "text": prop_text,
@@ -1148,20 +1257,31 @@ async def websocket_endpoint(ws: WebSocket):
                     "votes": votes,
                     "reasons": reasons,
                 }
-                proposal_records.append(record)
                 new_proposal_records.append(record)
 
-            # Clean response for display (remove PROPOSAL: prefix lines for chat display)
-            spoken_text = re.sub(r'^\s*PROPOSAL:\s*', '', response, flags=re.MULTILINE).strip()
+            # ── Mutate shared state under lock (Fix 4) ──
+            async with _state_lock:
+                proposals.extend(new_proposals)
+                proposal_records.extend(new_proposal_records)
 
-            protocol_msg = wrap_council_message(agent_id, turn, phase, spoken_text, new_proposals)
-            messages.append({"agent_id": agent_id, "agent_idx": agent_idx, "content": spoken_text, "phase": phase})
+                # Clean response for display (remove PROPOSAL: prefix lines for chat display)
+                spoken_text = re.sub(r'^\s*PROPOSAL:\s*', '', response, flags=re.MULTILINE).strip()
+
+                protocol_msg = wrap_council_message(agent_id, turn, phase, spoken_text, new_proposals)
+                messages.append({"agent_id": agent_id, "agent_idx": agent_idx, "content": spoken_text, "phase": phase})
+
+                # Snapshot state for the payload (before releasing the lock)
+                proposals_snapshot = proposals.copy()
+                records_snapshot = [
+                    {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
+                    for r in proposal_records
+                ]
 
             audio_b64 = None
             if TTS_ENABLED:
                 tts_text = clean_for_tts(spoken_text)
                 if tts_text:
-                    audio_bytes = await generate_tts(tts_text, voice_id)
+                    audio_bytes = await generate_tts(tts_text, voice_id, _session_client)
                     if audio_bytes:
                         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
@@ -1178,11 +1298,8 @@ async def websocket_endpoint(ws: WebSocket):
                     "audio": audio_b64,
                     "audio_format": "wav" if EFFECTIVE_TTS in ("qwen3", "kokoro") else "mp3",
                     "protocol_message": protocol_msg,
-                    "proposals": proposals.copy(),
-                    "proposal_records": [
-                        {"text": r["text"], "author": r["author"], "author_id": r.get("author_id", ""), "turn": r["turn"], "votes": r["votes"], "reasons": r.get("reasons", {})}
-                        for r in proposal_records
-                    ],
+                    "proposals": proposals_snapshot,
+                    "proposal_records": records_snapshot,
                     "new_proposals": new_proposals,
                     "new_proposal_records": new_proposal_records,
                     "consensus": consensus,
@@ -1311,6 +1428,7 @@ async def websocket_endpoint(ws: WebSocket):
                     [{"role": "user", "content": chairman_prompt}],
                     build_personality(chairman),
                     max_tokens=500,
+                    client=_session_client,
                 )
 
                 # ── Build ranked proposal scoreboard ──
@@ -1362,7 +1480,7 @@ async def websocket_endpoint(ws: WebSocket):
                         ch_voice = chairman["voice_el"]
                     tts_text = clean_for_tts(chairman_response)
                     if tts_text:
-                        audio_bytes = await generate_tts(tts_text, ch_voice)
+                        audio_bytes = await generate_tts(tts_text, ch_voice, _session_client)
                         if audio_bytes:
                             chairman_audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
@@ -1472,6 +1590,9 @@ async def websocket_endpoint(ws: WebSocket):
         if _background_tasks:
             await asyncio.gather(*_background_tasks, return_exceptions=True)
         _background_tasks.clear()
+        # ── Close per-session HTTP client ──
+        if _session_client and not _session_client.is_closed:
+            await _session_client.aclose()
 
 if __name__ == "__main__":
     from rich.console import Console
@@ -1511,4 +1632,10 @@ if __name__ == "__main__":
     c.print()
 
     _free_port(PORT)
-    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+    uvicorn.run(
+        app, host=HOST, port=PORT, log_level="warning",
+        # Fix 3: WebSocket keepalive — prevents proxies/browsers from dropping
+        # idle connections during long deliberation sessions (10+ minutes).
+        ws_ping_interval=30,   # send ping every 30s
+        ws_ping_timeout=10,    # close if no pong within 10s
+    )
