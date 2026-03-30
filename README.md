@@ -55,7 +55,11 @@ When an agent makes a formal **PROPOSAL**, every other agent (including the chai
 - **Text-to-Speech** — ElevenLabs, Kokoro (local, free), or Qwen3-TTS with distinct voices per agent
 - **Adjustable rounds** — 8 to 32 via slider, phases scale proportionally
 - **Real-time web UI** — live chat, proposal tracker with votes, consensus bar, JSON inspector
-- **Transcript export** — download the full deliberation as structured JSON
+- **Pause & resume** — pause the deliberation to read at your own pace, resume when ready
+- **Mobile support** — responsive layout with slide-out side panel on small screens
+- **Connection resilience** — WebSocket keepalive pings, connection-lost detection with banner
+- **Transcript export** — download as structured JSON or readable Markdown
+- **Smart error handling** — fatal errors (bad API key, model removed) fail immediately; transient errors (rate limits, timeouts) retry automatically
 
 ## Architecture
 
@@ -174,12 +178,23 @@ gibberlink-revisited/
 ├── tts_server.py      # Standalone TTS server for Kokoro/Qwen3 local inference
 ├── static/
 │   └── index.html     # Web frontend — real-time council UI with audio & voting
+├── tests/
+│   └── test_server.py # 63 tests covering all pure server logic
 ├── .env.example       # Configuration template
 ├── requirements.txt   # Core Python dependencies
 ├── logo.svg
 ├── LICENSE
 └── README.md
 ```
+
+## Testing
+
+```bash
+pip install pytest
+python3 -m pytest tests/ -v
+```
+
+The test suite covers error classification, response sanitization, garbage detection, proposal extraction, deduplication, and scoreboard scoring — all without needing API keys or a running server.
 
 ## Reconfiguring
 
